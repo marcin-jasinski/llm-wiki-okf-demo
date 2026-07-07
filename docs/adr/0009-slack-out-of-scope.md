@@ -1,0 +1,3 @@
+# Slack integration and cloud hosting are out of scope
+
+Slack (and any cloud deployment, e.g. AWS) is explicitly not built for this demo, even though the LLM Wiki pattern itself calls out Slack-fed team wikis as a use case. It would shift the demo's scope from "showcase LLM Wiki + OKF" toward "build and deploy a Slack app," introduce live-demo failure surface outside our control (OAuth, event delivery, hosting), and hide the interesting part — the agent's tool calls — behind a chat bot's "is typing" indicator instead of a visible terminal. Noted as a deliberate no, to be mentioned as a future-extension talking point rather than built.
