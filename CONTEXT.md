@@ -20,6 +20,14 @@ _Avoid_: command, mode
 The top-level tool-calling loop behind the interactive REPL. Its only tools are the three Operations — it interprets the user's natural language and decides which Operation to invoke. Distinct from the inner tool loop each Operation runs over the file primitives (read_file/write_file/list_dir/grep/fetch_url).
 _Avoid_: dispatcher, orchestrator
 
+**Wiki Store**:
+The pluggable storage interface behind the five file primitives — the one seam where local disk (`WIKI_DIR`) and remote xWiki implementations diverge. The LLM never sees which store is active; Operations and prompts are store-agnostic. Selected per process via `WIKI_BACKEND`.
+_Avoid_: backend (alone — ambiguous with the LLM backend), driver, adapter
+
+**xWiki MCP Server**:
+Our thin, agent-agnostic MCP server exposing generic xWiki page tools (`get_page`, `put_page`, `list_pages`, `delete_page`) over stdio, wrapping xWiki's REST API. Auto-spawned by the agent when the xWiki Wiki Store is active. Distinct from `mcp_server.py`, which exposes the three Operations to external MCP hosts.
+_Avoid_: conflating it with the Operations MCP server
+
 **Wiki Conventions doc** (`AGENTS.md`):
 An optional file at the Wiki Repo root, supplied by whoever owns that repo, appended to the agent's baked-in system prompt to add domain-specific guidance (preferred concept types, tag taxonomy, etc). Realizes the LLM Wiki spec's "schema" layer.
 _Avoid_: schema — OKF already reserves "Schema" for the `# Schema` body heading (an asset's columns/fields); reusing it for this file would collide with that meaning.
