@@ -22,10 +22,12 @@ A working implementation per the ADRs — Router REPL + background watcher (`mai
 
 <!-- one line per closed ticket -->
 
+- [Research: xWiki MCP server landscape](issues/01-xwiki-mcp-landscape.md) — no viable existing xWiki MCP server (official one has no page CRUD; community ones immature); we build a thin Python `mcp` wrapper over xWiki's REST API (page CRUD + Solr search, HTTP Basic auth, markdown via the CommonMark syntax extension).
+
 ## Not yet specified
 
 - Lint semantics on the remote backend — what "orphan page" / "missing cross-reference" means over xWiki links; sharpens after the OKF-on-xWiki mapping is decided.
-- Whether a custom thin xWiki MCP server must be built, and its tool surface — hangs on the xWiki MCP landscape research.
+- The thin xWiki MCP server's exact tool surface — decided to build it (see Decisions), but its tools follow from the storage abstraction design.
 - Demo walkthrough details: exact beats, sample source files, what's shown live vs pre-baked — sharpens after the demo content domain is chosen.
 - Query's HTML answer rendering details (template, browser-open mechanism) — minor; resolves inside the core-skeleton build ticket.
 - Which new ADRs to write for pluggable storage and remote review-gate — falls out of the design tickets.

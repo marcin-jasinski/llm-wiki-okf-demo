@@ -7,4 +7,4 @@ Map: ../MAP.md
 
 ## Question
 
-Implement the remote storage backend: agent as MCP client to the xWiki MCP server chosen in the landscape research (including building the thin REST-wrapping MCP server if that was the recommendation), honoring the decided abstraction, OKF-on-xWiki mapping, and remote review gate. Backend switch via config; smoke tests for backend switching (xWiki live or mocked per the abstraction ADR).
+Implement the remote storage backend: build the thin xWiki MCP server (Python `mcp` SDK, stdio, httpx over xWiki REST — see the [landscape research](../assets/01-xwiki-mcp-landscape.md) for endpoints and gotchas) and the agent-side MCP client that consumes it, honoring the decided abstraction, OKF-on-xWiki mapping, and remote review gate. Backend switch via config; smoke tests for backend switching (xWiki live or mocked per the abstraction ADR).
