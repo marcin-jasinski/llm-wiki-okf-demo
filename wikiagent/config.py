@@ -27,6 +27,7 @@ class Settings:
     openrouter_api_key: str
     lmstudio_base_url: str
     wiki_backend: str
+    xwiki: dict
 
 
 def load_settings() -> Settings:
@@ -35,6 +36,12 @@ def load_settings() -> Settings:
     if missing:
         raise SystemExit(f"missing required .env settings: {', '.join(missing)} "
                          "(copy .env.example to .env and fill it in)")
+    wiki_backend = os.getenv("WIKI_BACKEND", "local")
+    if wiki_backend == "xwiki":
+        missing_x = [k for k in ("XWIKI_BASE_URL", "XWIKI_USER", "XWIKI_PASSWORD",
+                                 "XWIKI_SPACE") if not os.getenv(k)]
+        if missing_x:
+            raise SystemExit(f"WIKI_BACKEND=xwiki needs: {', '.join(missing_x)}")
     return Settings(
         wiki_dir=Path(os.environ["WIKI_DIR"]),
         raw_sources_dir=Path(os.environ["RAW_SOURCES_DIR"]),
@@ -42,7 +49,14 @@ def load_settings() -> Settings:
         model_name=os.environ["MODEL_NAME"],
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY", ""),
         lmstudio_base_url=os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1"),
-        wiki_backend=os.getenv("WIKI_BACKEND", "local"),
+        wiki_backend=wiki_backend,
+        xwiki={
+            "base_url": os.getenv("XWIKI_BASE_URL", ""),
+            "user": os.getenv("XWIKI_USER", ""),
+            "password": os.getenv("XWIKI_PASSWORD", ""),
+            "wiki": os.getenv("XWIKI_WIKI", "xwiki"),
+            "space": os.getenv("XWIKI_SPACE", ""),
+        },
     )
 
 
@@ -60,7 +74,7 @@ def build():
     """Everything an entry point needs: (settings, client, primitives, operations)."""
     s = load_settings()
     client = make_client(s)
-    store = make_store(s.wiki_backend, wiki_dir=s.wiki_dir)
+    store = make_store(s.wiki_backend, wiki_dir=s.wiki_dir, xwiki=s.xwiki)
     prims = Primitives(store, s.raw_sources_dir)
     ops = Operations(prims, client, model=s.model_name)
     return s, client, prims, ops

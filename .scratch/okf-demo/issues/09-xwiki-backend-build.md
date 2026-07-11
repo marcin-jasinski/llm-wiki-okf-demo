@@ -1,7 +1,7 @@
 # Task: build xWiki backend (MCP client)
 
 Labels: wayfinder:task
-Status: ready-for-agent
+Status: closed (2026-07-11)
 Blocked-by: 02-storage-abstraction-design, 03-xwiki-instance, 05-remote-review-gate, 06-okf-on-xwiki-mapping
 Map: ../MAP.md
 

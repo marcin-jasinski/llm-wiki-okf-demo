@@ -1,0 +1,111 @@
+"""Smoke tests for the xWiki Wiki Store and backend switching (ticket 09).
+
+The XWikiStore logic (OKF↔page mapping, ADR 0012) is tested against an
+in-memory fake PageClient — the injectable seam store.PageClient defines — so
+these run with no live xWiki. A separate live test exercises the real MCP
+server + REST round-trip and skips when xWiki isn't up.
+"""
+
+import pytest
+
+from wikiagent.okf import check_pages, wrap_frontmatter
+from wikiagent.primitives import Primitives
+from wikiagent.store import LocalStore, XWikiStore, make_store
+
+
+class FakePageClient:
+    """In-memory stand-in for the MCP page client, keyed by (spaces, name)."""
+
+    def __init__(self):
+        self.pages: dict[tuple, str] = {}
+
+    def get(self, spaces, name):
+        return self.pages.get((tuple(spaces), name))
+
+    def put(self, spaces, name, content):
+        self.pages[(tuple(spaces), name)] = content
+
+    def delete(self, spaces, name):
+        self.pages.pop((tuple(spaces), name), None)
+
+    def list_all(self, spaces):
+        prefix = tuple(spaces)
+        return [(list(sp), name) for (sp, name) in self.pages
+                if sp[:len(prefix)] == prefix]
+
+
+@pytest.fixture
+def store():
+    return XWikiStore(FakePageClient(), space="WikiDemo")
+
+
+def test_write_maps_path_to_nested_page(store):
+    store.write("tables/orders.md", "body")
+    # ADR 0012: dirs -> nested spaces under root, filename -> terminal page
+    assert store.client.pages == {(("WikiDemo", "tables"), "orders"): "body"}
+
+
+def test_read_round_trips_verbatim(store):
+    page = wrap_frontmatter("See [x](accounts.md).", type="table", title="Orders")
+    store.write("tables/orders.md", page)
+    assert store.read("tables/orders.md") == page  # frontmatter + link untouched
+
+
+def test_read_missing_raises(store):
+    with pytest.raises(FileNotFoundError):
+        store.read("nope.md")
+
+
+def test_non_markdown_rejected(store):
+    with pytest.raises(ValueError):
+        store.write("data.json", "{}")
+
+
+def test_walk_and_list_match_localstore_semantics(store):
+    for p in ("index.md", "tables/orders.md", "tables/customers.md", "guides/a.md"):
+        store.write(p, "x")
+    assert store.walk() == ["guides/a.md", "index.md",
+                            "tables/customers.md", "tables/orders.md"]
+    assert store.list() == ["guides/", "index.md", "tables/"]
+    assert store.list("tables") == ["customers.md", "orders.md"]
+
+
+def test_list_sort_matches_localstore_on_stem_collision(store, tmp_path):
+    """A file and dir sharing a stem must order identically on both backends."""
+    for p in ("tables.md", "tables/orders.md"):
+        store.write(p, "x")
+    local = LocalStore(tmp_path)
+    for p in ("tables.md", "tables/orders.md"):
+        local.write(p, "x")
+    assert store.list() == local.list() == ["tables/", "tables.md"]
+
+
+def test_export_is_conformant_by_construction(store):
+    """ADR 0012: walk+read reproduces a conformant OKF bundle, no reassembly."""
+    store.write("concepts/ledger.md",
+                wrap_frontmatter("A ledger.", type="concept", title="Ledger"))
+    exported = {rel: store.read(rel) for rel in store.walk()}
+    assert check_pages(exported) == []
+
+
+def test_primitives_work_over_xwiki_backend(store):
+    """Backend switching: the same five primitives run unchanged on xWiki."""
+    prims = Primitives(store, sources_dir=".")
+    prims.write_file("wiki/tables/orders.md",
+                     "---\ntype: Table\n---\nSee [c](customers.md).\n")
+    assert prims.read_file("wiki/tables/orders.md").endswith("customers.md).\n")
+    assert prims.list_dir("wiki") == ["tables/"]
+    hits = prims.grep(r"customers\.md")
+    assert hits == ["wiki/tables/orders.md:4:See [c](customers.md)."]
+
+
+def test_make_store_selects_xwiki(monkeypatch):
+    """make_store wires the real MCP client; stub it so no subprocess spawns."""
+    import wikiagent.xwiki_client as xc
+    monkeypatch.setattr(xc, "make_page_client", lambda cfg: FakePageClient())
+    s = make_store("xwiki", xwiki={"space": "WikiDemo"})
+    assert isinstance(s, XWikiStore) and s.space == "WikiDemo"
+
+
+def test_make_store_still_selects_local(tmp_path):
+    assert isinstance(make_store("local", wiki_dir=tmp_path), LocalStore)

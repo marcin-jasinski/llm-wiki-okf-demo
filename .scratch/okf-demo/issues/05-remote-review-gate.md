@@ -1,7 +1,7 @@
 # Grilling: human review gate for remote writes
 
 Labels: wayfinder:grilling
-Status: ready-for-human
+Status: closed (2026-07-11)
 Blocked-by: 01-xwiki-mcp-landscape
 Map: ../MAP.md
 

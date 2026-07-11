@@ -1,7 +1,7 @@
 # Grilling: OKF-on-xWiki mapping
 
 Labels: wayfinder:grilling
-Status: ready-for-human
+Status: closed (2026-07-11)
 Blocked-by: 01-xwiki-mcp-landscape, 03-xwiki-instance
 Map: ../MAP.md
 
