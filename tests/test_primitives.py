@@ -44,6 +44,12 @@ def test_write_file_into_sources_rejected(prims):
         prims.write_file("sources/notes.txt", "overwrite attempt")
 
 
+def test_write_file_agents_md_rejected(prims):
+    # the wiki-conventions doc is human-owned; the agent must never rewrite it
+    with pytest.raises(SandboxError):
+        prims.write_file("wiki/AGENTS.md", "sneaky rewrite")
+
+
 def test_path_traversal_rejected(prims):
     for bad in ("wiki/../escape.md", "sources/../../etc/passwd", "/etc/passwd", "C:/x.md"):
         with pytest.raises(SandboxError):

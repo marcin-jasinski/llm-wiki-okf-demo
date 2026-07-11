@@ -5,9 +5,8 @@ human-triggered, deterministic filing of the last Query answer (ADR 0006).
 """
 
 import threading
-from pathlib import Path
 
-from wikiagent.agent import _tool, _STR, run_tool_loop
+from wikiagent.agent import tool_spec, STR, run_tool_loop
 from wikiagent.okf import wrap_frontmatter
 from wikiagent.primitives import SandboxError
 
@@ -25,16 +24,16 @@ Relay each tool's result back to the user concisely. If the request matches no t
 answer conversationally and mention what you can do."""
 
 ROUTER_TOOLS = [
-    _tool("ingest_source", "Integrate a sources/ file or URL into the wiki.",
-          {"source": _STR}, ["source"]),
-    _tool("query_wiki", "Answer a question from the wiki (read-only).",
-          {"question": _STR}, ["question"]),
-    _tool("lint_wiki", "Self-heal structural wiki issues.", {}, []),
-    _tool("file_answer",
-          "Save the last query answer to the wiki verbatim (human-approved).",
-          {"path": _STR, "title": _STR, "description": _STR,
-           "tags": {"type": "array", "items": _STR}},
-          ["path", "title"]),
+    tool_spec("ingest_source", "Integrate a sources/ file or URL into the wiki.",
+              {"source": STR}, ["source"]),
+    tool_spec("query_wiki", "Answer a question from the wiki (read-only).",
+              {"question": STR}, ["question"]),
+    tool_spec("lint_wiki", "Self-heal structural wiki issues.", {}, []),
+    tool_spec("file_answer",
+              "Save the last query answer to the wiki verbatim (human-approved).",
+              {"path": STR, "title": STR, "description": STR,
+               "tags": {"type": "array", "items": STR}},
+              ["path", "title"]),
 ]
 
 
@@ -76,7 +75,7 @@ class Router:
         if name == "query_wiki":
             with self.lock:
                 answer = self.ops.query(args["question"])
-            self.last_answer = answer
+                self.last_answer = answer
             return answer
         if name == "lint_wiki":
             with self.lock:
@@ -85,10 +84,3 @@ class Router:
             with self.lock:
                 return self._file_answer(**args)
         return f"error: unknown tool {name}"
-
-
-def new_files(sources_dir: Path, seen: set) -> list[str]:
-    """Relative paths of files under sources_dir not in `seen` (watcher poll)."""
-    current = {p.relative_to(sources_dir).as_posix()
-               for p in Path(sources_dir).rglob("*") if p.is_file()}
-    return sorted(current - seen)

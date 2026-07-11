@@ -6,10 +6,11 @@ from types import SimpleNamespace
 
 from wikiagent.okf import check_page
 from wikiagent.primitives import Primitives
-from wikiagent.router import Router, new_files
+from wikiagent.repl import new_files
+from wikiagent.router import Router
 from wikiagent.store import LocalStore
 
-from test_agent import FakeClient, msg, tool_call
+from conftest import FakeClient, msg, tool_call
 
 
 class StubOps:

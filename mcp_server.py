@@ -2,7 +2,7 @@
 `uv run mcp_server.py` (stdio).
 """
 
-from wikiagent.mcp_server import mcp
+from wikiagent.mcp_server import main
 
 if __name__ == "__main__":
-    mcp.run()
+    main()

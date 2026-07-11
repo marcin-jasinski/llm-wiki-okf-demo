@@ -8,6 +8,9 @@ from pathlib import Path
 import yaml
 
 RESERVED = {"index.md", "log.md"}
+# Exempt from concept-page conformance: the reserved catalog/history files plus
+# the wiki-conventions doc (AGENTS.md), which is prose guidance, not a concept.
+CONFORMANCE_EXEMPT = RESERVED | {"AGENTS.md"}
 
 
 def parse_frontmatter(text: str):
@@ -35,16 +38,22 @@ def check_page(text: str) -> list[str]:
     return []
 
 
-def check_bundle(root: Path) -> list[str]:
-    """Conformance problems across a bundle, as 'path: problem' lines."""
+def check_pages(pages: dict[str, str]) -> list[str]:
+    """Conformance problems across {relpath: text}, as 'path: problem' lines."""
     problems = []
-    for p in sorted(Path(root).rglob("*.md")):
-        if p.name in RESERVED:
+    for rel in sorted(pages):
+        if Path(rel).name in CONFORMANCE_EXEMPT:
             continue
-        rel = p.relative_to(root).as_posix()
-        text = p.read_text(encoding="utf-8")
-        problems += [f"{rel}: {msg}" for msg in check_page(text)]
+        problems += [f"{rel}: {msg}" for msg in check_page(pages[rel])]
     return problems
+
+
+def check_bundle(root: Path) -> list[str]:
+    """Conformance problems across a bundle on disk, as 'path: problem' lines."""
+    root = Path(root)
+    pages = {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8")
+             for p in root.rglob("*.md")}
+    return check_pages(pages)
 
 
 def wrap_frontmatter(body: str, *, type: str, title: str,

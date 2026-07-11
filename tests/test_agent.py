@@ -5,41 +5,13 @@ the primitives and returns the final answer; Query is read-only (ADR 0006);
 AGENTS.md is folded into the system prompt when present.
 """
 
-import json
-from types import SimpleNamespace
-
 import pytest
 
 from wikiagent.agent import Operations
 from wikiagent.primitives import Primitives
 from wikiagent.store import LocalStore
 
-
-def msg(content=None, tool_calls=None):
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(
-            content=content, tool_calls=tool_calls))]
-    )
-
-
-def tool_call(name, args, id="call_1"):
-    return SimpleNamespace(
-        id=id, function=SimpleNamespace(name=name, arguments=json.dumps(args))
-    )
-
-
-class FakeClient:
-    """Plays back scripted responses; records every create() kwargs."""
-
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.calls = []
-        completions = SimpleNamespace(create=self._create)
-        self.chat = SimpleNamespace(completions=completions)
-
-    def _create(self, **kwargs):
-        self.calls.append(kwargs)
-        return self.responses.pop(0)
+from conftest import FakeClient, msg, tool_call
 
 
 @pytest.fixture
@@ -77,6 +49,7 @@ def test_query_has_no_write_tool(wiki):
     assert answer == "The answer."
     names = [t["function"]["name"] for t in client.calls[0]["tools"]]
     assert "write_file" not in names
+    assert "fetch_url" not in names  # scope creep vs README (only ingest fetches)
     assert "read_file" in names and "grep" in names
 
 
@@ -85,6 +58,17 @@ def test_lint_has_write_tool(wiki):
     make_ops(wiki, client).lint()
     names = [t["function"]["name"] for t in client.calls[0]["tools"]]
     assert "write_file" in names
+    assert "fetch_url" not in names  # lint stays inside the wiki
+
+
+def test_lint_feeds_conformance_problems_into_prompt(wiki):
+    (wiki / "wiki" / "bad.md").write_text("no frontmatter here", encoding="utf-8")
+    (wiki / "wiki" / "AGENTS.md").write_text("just conventions", encoding="utf-8")
+    client = FakeClient([msg(content="Fixed.")])
+    make_ops(wiki, client).lint()
+    user_msg = client.calls[0]["messages"][1]["content"]
+    assert "bad.md" in user_msg  # the mechanical scan surfaced it
+    assert "AGENTS.md" not in user_msg  # exempt from conformance
 
 
 def test_bad_tool_call_reports_error_to_llm_not_crash(wiki):
@@ -112,3 +96,5 @@ def test_loop_stops_at_max_iterations(wiki):
     client = FakeClient(endless)
     result = make_ops(wiki, client).lint()
     assert "iteration limit" in result
+    # history must end on an assistant turn, not a tool result (Router persistence)
+    assert client.calls[-1]["messages"][-1]["role"] == "assistant"

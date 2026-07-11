@@ -10,14 +10,15 @@ from pathlib import Path
 
 import markdown
 
+from wikiagent import okf
 from wikiagent.primitives import SandboxError
 
 MAX_ITERATIONS = 25
 
-_STR = {"type": "string"}
+STR = {"type": "string"}
 
 
-def _tool(name, description, params, required):
+def tool_spec(name, description, params, required):
     return {
         "type": "function",
         "function": {
@@ -33,27 +34,27 @@ def _tool(name, description, params, required):
 
 
 TOOL_SPECS = {
-    "read_file": _tool(
+    "read_file": tool_spec(
         "read_file",
         "Read a file. Paths start with wiki/ (the wiki) or sources/ (read-only raw sources).",
-        {"path": _STR}, ["path"]),
-    "write_file": _tool(
+        {"path": STR}, ["path"]),
+    "write_file": tool_spec(
         "write_file",
         "Create or overwrite a file. Only wiki/ paths are writable.",
-        {"path": _STR, "content": _STR}, ["path", "content"]),
-    "list_dir": _tool(
+        {"path": STR, "content": STR}, ["path", "content"]),
+    "list_dir": tool_spec(
         "list_dir",
         "List one directory level under wiki/ or sources/. Subdirectories end with '/'.",
-        {"path": _STR}, ["path"]),
-    "grep": _tool(
+        {"path": STR}, ["path"]),
+    "grep": tool_spec(
         "grep",
         "Regex-search file contents. Returns path:line:text hits.",
-        {"pattern": _STR, "root": {"type": "string", "enum": ["wiki", "sources"]}},
+        {"pattern": STR, "root": {"type": "string", "enum": ["wiki", "sources"]}},
         ["pattern"]),
-    "fetch_url": _tool(
+    "fetch_url": tool_spec(
         "fetch_url",
         "Fetch a URL and return its body as text.",
-        {"url": _STR}, ["url"]),
+        {"url": STR}, ["url"]),
 }
 
 OKF_CONVENTIONS = """\
@@ -95,6 +96,8 @@ Operation: Lint. Self-heal STRUCTURAL issues only (ADR 0007):
 - pages missing from wiki/index.md: add entries;
 - concepts mentioned across pages but with no cross-reference link: add the links;
 - non-conformant pages (missing/empty frontmatter `type`): fix the frontmatter.
+`wiki/AGENTS.md` is the wiki-conventions doc: it is exempt from these rules and must
+never be rewritten.
 Do NOT rewrite content, resolve contradictions, or judge staleness — report those instead.
 Append a lint entry to wiki/log.md. Finish with a plain-text report of fixes and of any \
 content-level issues you saw but deliberately left alone."""
@@ -142,7 +145,11 @@ def run_tool_loop(client, model: str, messages: list, tools: list, dispatch) -> 
             print(f"  [{c.function.name}] {c.function.arguments[:120]}", file=sys.stderr)
             result = dispatch(c.function.name, json.loads(c.function.arguments))
             messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
-    return "stopped: iteration limit reached without a final answer"
+    # Leave `messages` ending on an assistant turn, not a tool result, so the
+    # Router's persistent history stays a valid conversation.
+    stopped = "stopped: iteration limit reached without a final answer"
+    messages.append({"role": "assistant", "content": stopped})
+    return stopped
 
 
 def render_answer_html(answer_md: str) -> Path:
@@ -199,12 +206,23 @@ class Operations:
     def query(self, question: str, open_browser: bool = True) -> str:
         """Answer a question from the wiki. Read-only (ADR 0006)."""
         answer = self._loop(QUERY_PROMPT, question,
-                            ["read_file", "list_dir", "grep", "fetch_url"])
+                            ["read_file", "list_dir", "grep"])
         if open_browser and answer:
             webbrowser.open(render_answer_html(answer).as_uri())
         return answer
 
+    def _conformance_problems(self) -> list[str]:
+        """Mechanical OKF conformance scan over the wiki, backend-agnostic."""
+        pages = {p: self.prims.store.read(p)
+                 for p in self.prims.store.walk() if p.endswith(".md")}
+        return okf.check_pages(pages)
+
     def lint(self) -> str:
         """Self-heal structural issues (ADR 0007)."""
-        return self._loop(LINT_PROMPT, "Lint the wiki now.",
-                          ["read_file", "write_file", "list_dir", "grep", "fetch_url"])
+        user_msg = "Lint the wiki now."
+        problems = self._conformance_problems()
+        if problems:
+            user_msg += ("\n\nA mechanical conformance scan already found these "
+                         "non-conformant pages — fix each one:\n" + "\n".join(problems))
+        return self._loop(LINT_PROMPT, user_msg,
+                          ["read_file", "write_file", "list_dir", "grep"])

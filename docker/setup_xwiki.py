@@ -20,6 +20,7 @@ What it does:
    test page (create → read → delete).
 """
 
+import os
 import subprocess
 import sys
 import time
@@ -29,7 +30,7 @@ import httpx
 BASE_URL = "http://localhost:8080"
 USER = "superadmin"
 PASSWORD = "xwiki-demo"  # local demo instance only — not reachable from outside
-CONTAINER = "docker-xwiki-1"
+CONTAINER = os.environ.get("XWIKI_CONTAINER", "docker-xwiki-1")
 XWIKI_VERSION = "18.5.0"
 MARKDOWN_EXTENSION = ("org.xwiki.contrib.markdown:syntax-markdown-commonmark12", "8.9")
 FLAVOR = ("org.xwiki.platform:xwiki-platform-distribution-flavor-mainwiki", XWIKI_VERSION)

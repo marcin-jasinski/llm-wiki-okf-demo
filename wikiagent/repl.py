@@ -4,11 +4,19 @@ Raw Sources Directory + foreground Router REPL, one process, `uv run main.py`.
 
 import threading
 import time
+from pathlib import Path
 
 from wikiagent.config import build
-from wikiagent.router import Router, new_files
+from wikiagent.router import Router
 
 POLL_INTERVAL = 3.0  # seconds
+
+
+def new_files(sources_dir, seen: set) -> list[str]:
+    """Relative paths of files under sources_dir not in `seen` (watcher poll)."""
+    current = {p.relative_to(sources_dir).as_posix()
+               for p in Path(sources_dir).rglob("*") if p.is_file()}
+    return sorted(current - seen)
 
 
 def watch(router: Router, sources_dir, stop: threading.Event):

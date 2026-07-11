@@ -43,6 +43,8 @@ class Primitives:
         root, rel = _split(path)
         if root != "wiki" or not rel:
             raise SandboxError("write_file is only allowed inside wiki/")
+        if rel == "AGENTS.md":
+            raise SandboxError("wiki/AGENTS.md is read-only (wiki-conventions doc)")
         self.store.write(rel, content)
         return f"wrote {path}"
 

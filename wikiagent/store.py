@@ -44,9 +44,9 @@ class LocalStore:
         )
 
 
-def make_store(backend: str, *, wiki_dir=None, **kwargs):
-    if backend == "local":
+def make_store(wiki_backend: str, *, wiki_dir=None):
+    if wiki_backend == "local":
         return LocalStore(wiki_dir)
-    if backend == "xwiki":
+    if wiki_backend == "xwiki":
         raise NotImplementedError("xWiki store lands with ticket 09")
-    raise ValueError(f"unknown WIKI_BACKEND: {backend!r} (expected local|xwiki)")
+    raise ValueError(f"unknown WIKI_BACKEND: {wiki_backend!r} (expected local|xwiki)")

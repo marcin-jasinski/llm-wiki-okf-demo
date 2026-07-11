@@ -2,7 +2,7 @@
 and Lint, and the deterministic wrap-with-frontmatter save (ADR 0006).
 """
 
-from wikiagent.okf import check_bundle, check_page, wrap_frontmatter
+from wikiagent.okf import check_bundle, check_page, check_pages, wrap_frontmatter
 
 GOOD = """---
 type: Table
@@ -46,6 +46,20 @@ def test_check_bundle(tmp_path):
     assert any("bad.md" in p for p in problems)
     assert not any("good.md" in p for p in problems)
     assert not any("index.md" in p or "log.md" in p for p in problems)
+
+
+def test_check_pages_exempts_reserved_and_agents_md():
+    pages = {
+        "good.md": GOOD,
+        "bad.md": "no frontmatter",
+        "index.md": "# Concepts\n",
+        "log.md": "# Log\n",
+        "AGENTS.md": "conventions, not a concept",
+    }
+    problems = check_pages(pages)
+    assert any("bad.md" in p for p in problems)
+    assert not any(name in p for p in problems
+                   for name in ("good.md", "index.md", "log.md", "AGENTS.md"))
 
 
 def test_wrap_frontmatter_is_conformant():
