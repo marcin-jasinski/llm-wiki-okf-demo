@@ -18,6 +18,10 @@ dist/
 # dotenv environment variable files
 .env
 
+# Generated demo wiki bundle — regenerated live by the demo (ticket 10);
+# only the raw sources under demo/sources/ are controlled inputs.
+demo/wiki/
+
 # Virtual environments
 .venv
 env/

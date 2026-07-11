@@ -26,8 +26,16 @@ class Settings:
     model_name: str
     openrouter_api_key: str
     lmstudio_base_url: str
+    lmstudio_model: str
     wiki_backend: str
     xwiki: dict
+
+    @property
+    def model(self) -> str:
+        """The model for the active backend (ADR 0003: model rides with the brain)."""
+        if self.llm_backend == "lmstudio":
+            return self.lmstudio_model or self.model_name
+        return self.model_name
 
 
 def load_settings() -> Settings:
@@ -49,6 +57,7 @@ def load_settings() -> Settings:
         model_name=os.environ["MODEL_NAME"],
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY", ""),
         lmstudio_base_url=os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1"),
+        lmstudio_model=os.getenv("LMSTUDIO_MODEL", ""),
         wiki_backend=wiki_backend,
         xwiki={
             "base_url": os.getenv("XWIKI_BASE_URL", ""),
@@ -76,5 +85,5 @@ def build():
     client = make_client(s)
     store = make_store(s.wiki_backend, wiki_dir=s.wiki_dir, xwiki=s.xwiki)
     prims = Primitives(store, s.raw_sources_dir)
-    ops = Operations(prims, client, model=s.model_name)
+    ops = Operations(prims, client, model=s.model)
     return s, client, prims, ops
