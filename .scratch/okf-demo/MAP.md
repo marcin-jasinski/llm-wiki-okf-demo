@@ -28,12 +28,12 @@ A working implementation per the ADRs — Router REPL + background watcher (`mai
 - [Task: build core agent (local backend)](issues/08-core-agent-build.md) — built TDD-first in `wikiagent/` package + thin `main.py`/`mcp_server.py` entries; 31 tests, mypy clean; virtual `wiki/`/`sources/` paths route the two trees; Router carries a fourth deterministic `file_answer` tool (ADR 0006). Live-LLM verification deferred to ticket 10 (needs 07's credentials).
 - [Grilling: OKF-on-xWiki mapping](issues/06-okf-on-xwiki-mapping.md) — OKF bundle maps to xWiki as **verbatim markdown/1.2 pages**: directory path → nested spaces under `XWIKI_SPACE`, filename → terminal page; frontmatter/body/links stored in-band unchanged; `index.md`/`log.md` → plain `index`/`log` pages. Export = walk+dump → byte-identical, conformant by construction. Recorded as ADR 0012.
 - [Grilling: remote review gate](issues/05-remote-review-gate.md) — remote writes are gated by **ingest approval (ADR 0006) + xWiki's native page history** (diff/rollback); no preview/staging layer. Amends ADR 0004 to local-only. Recorded as ADR 0013.
+- [Grilling: demo content domain](issues/04-demo-content-domain.md) — chose a **fictional SaaS engineering wiki** ("Meridian"); 5 invented raw source docs in `demo/sources/` (billing/checkout service designs, checkout-outage runbook, on-call policy, an April-2026 postmortem). Engineered so all three Operations show: Checkout depends synchronously on Billing (Query "blast radius"), and the **Ledger service** is referenced everywhere but has no source doc of its own → deterministic Self-Healing Lint target.
 - [Task: build xWiki backend (MCP client)](issues/09-xwiki-backend-build.md) — thin agent-agnostic xWiki MCP server (`wikiagent/xwiki_mcp_server.py`, FastMCP/stdio, 4 page tools over REST) + `XWikiStore` MCP client (`store.py`) auto-spawning it via a persistent stdio session on a worker-thread event loop (`xwiki_client.py`). `WIKI_BACKEND=xwiki` + `XWIKI_*` config; `list_pages` uses the wiki-wide `/pages?space=` endpoint (per-space `/spaces` misses WebHome-less nested spaces — the gotcha). 44 tests incl. a live round-trip verified against real xWiki; mypy clean.
 
 ## Not yet specified
 
-- Lint semantics on the remote backend — what "orphan page" / "missing cross-reference" means over xWiki links; sharpens after the OKF-on-xWiki mapping is decided.
-- Demo walkthrough details: exact beats, sample source files, what's shown live vs pre-baked — sharpens after the demo content domain is chosen.
+- Demo walkthrough details: exact beats, what's shown live vs pre-baked — sharpens in ticket 10 now the domain + raw sources are chosen (ticket 04).
 - Query's HTML answer rendering details (template, browser-open mechanism) — minor; resolves inside the core-skeleton build ticket.
 - Which new ADRs to write for pluggable storage and remote review-gate — falls out of the design tickets.
 

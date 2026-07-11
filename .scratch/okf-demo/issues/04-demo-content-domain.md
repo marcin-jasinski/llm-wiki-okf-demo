@@ -1,7 +1,7 @@
 # Grilling: demo content domain
 
 Labels: wayfinder:grilling
-Status: ready-for-human
+Status: closed (2026-07-11)
 Blocked-by: —
 Map: ../MAP.md
 
