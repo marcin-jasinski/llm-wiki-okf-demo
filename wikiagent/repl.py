@@ -2,6 +2,7 @@
 Raw Sources Directory + foreground Router REPL, one process, `uv run main.py`.
 """
 
+import sys
 import threading
 import time
 from pathlib import Path
@@ -29,6 +30,14 @@ def watch(router: Router, sources_dir, stop: threading.Event):
 
 
 def main():
+    # Windows consoles default to a legacy code page (e.g. cp1250); LLM output
+    # can carry characters outside it (✓, —, emoji). Print as UTF-8, replacing
+    # the rare un-encodable glyph rather than crashing the REPL mid-demo.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except AttributeError:
+            pass
     settings, client, prims, ops = build()
     router = Router(ops, prims, client, model=settings.model)
     stop = threading.Event()

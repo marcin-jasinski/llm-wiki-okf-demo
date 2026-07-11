@@ -134,29 +134,28 @@ A real `qwen/qwen3.5-9b` answer (abridged):
 > lint the wiki
 ```
 
-**Expected:** Self-Healing Lint (ADR 0007) fixes *structural* issues only —
+Lint first runs a mechanical OKF conformance scan (deterministic,
+backend-agnostic), then hands the *structural* fixes to the LLM (ADR 0007): it
 adds any page missing from `index.md`, links orphan pages, and adds
-cross-reference links for concepts mentioned but not linked (the **Ledger
-service**, referenced across billing, the runbook, and the postmortem, is the
-planted case). It appends a lint entry to `log.md` and reports any
-*content-level* issues (contradictions, staleness) it deliberately left alone.
+cross-reference links for concepts mentioned but not linked — then appends a
+lint entry to `log.md` and reports *content-level* issues (contradictions,
+staleness) it deliberately left alone.
 
-**Model caveat — this is the beat that wants a capable model.** Lint first runs
-a mechanical OKF conformance scan (deterministic, backend-agnostic), then hands
-the *structural* fixes to the LLM. In a real run the wiki had a genuine gap —
-`incidents/postmortem-2026-04-12.md` was created during ingest but never added
-to `index.md`, so Lint should add that entry and link the page. But the two
-models tested here don't reliably converge on the fix: `qwen/qwen3.5-9b`
-explores every page and hits the iteration cap without writing, and
-`xiaomi/mimo-v2.5` (OpenRouter) returned an empty report. This is ADR
+**Verified outcome (on a capable model, `anthropic/claude-sonnet-4.5`).** The
+ingested wiki had a genuine gap — `incidents/postmortem-2026-04-12.md` was
+created but never added to `index.md`. Lint found it, added a new `## Incidents`
+section to `index.md` linking the page (and its source summary), verified all
+pages had non-empty frontmatter `type:`, found no orphans, and appended a
+`log.md` lint record — and the bundle stayed conformant.
+
+**Model caveat.** This is the beat that most rewards a strong model. The two
+smaller models tried here did *not* converge on the fix: `qwen/qwen3.5-9b`
+(local) explores every page and hits the iteration cap without writing, and
+`xiaomi/mimo-v2.5` (OpenRouter) returned an empty report. That's ADR
 [`0002`](docs/adr/0002-tool-calling-loop.md)'s accepted trade-off — weaker
 models are less predictable inside a tool-calling loop. **Ingest and Query are
-robust on the local model; Lint's self-healing writes benefit from a frontier
-model.** Point `LLM_BACKEND`/`MODEL_NAME` at one for this beat.
-
-To see the self-heal concretely with a capable model, plant an obvious defect
-first — delete one page's line from `index.md` — then run lint and watch it
-restore the entry and append a `log.md` lint record.
+robust even on the local 9B; for the Lint beat, point `LLM_BACKEND`/`MODEL_NAME`
+at a frontier model.**
 
 ### File an answer (optional)
 
