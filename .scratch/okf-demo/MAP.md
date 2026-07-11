@@ -24,6 +24,8 @@ A working implementation per the ADRs — Router REPL + background watcher (`mai
 
 - [Research: xWiki MCP server landscape](issues/01-xwiki-mcp-landscape.md) — no viable existing xWiki MCP server (official one has no page CRUD; community ones immature); we build a thin Python `mcp` wrapper over xWiki's REST API (page CRUD + Solr search, HTTP Basic auth, markdown via the CommonMark syntax extension).
 - [Grilling: storage abstraction design](issues/02-storage-abstraction-design.md) — five primitives stay the uniform LLM tool surface; `WikiStore` interface behind them; xWiki store = MCP client to our auto-spawned stdio page-CRUD server; client-side regex grep; `WIKI_BACKEND=local|xwiki`; `XWIKI_SPACE` is the write sandbox. Recorded as ADR 0011.
+- [Task: stand up a local xWiki instance](issues/03-xwiki-instance.md) — xWiki 18.5.0 running at `http://localhost:8080` (`docker/docker-compose.yml` + idempotent `docker/setup_xwiki.py`); superadmin/xwiki-demo; markdown/1.2 verified over REST; extensions must be installed via a Groovy setup page, not `/rest/jobs` (see ticket for the gotcha).
+- [Task: build core agent (local backend)](issues/08-core-agent-build.md) — built TDD-first in `wikiagent/` package + thin `main.py`/`mcp_server.py` entries; 31 tests, mypy clean; virtual `wiki/`/`sources/` paths route the two trees; Router carries a fourth deterministic `file_answer` tool (ADR 0006). Live-LLM verification deferred to ticket 10 (needs 07's credentials).
 
 ## Not yet specified
 
