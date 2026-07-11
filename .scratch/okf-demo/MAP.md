@@ -1,7 +1,7 @@
 # Map: Full working demo — LLM Wiki + OKF over pluggable local/xWiki storage
 
 Labels: wayfinder:map
-Status: ready-for-agent
+Status: done (2026-07-11) — all 10 tickets closed
 Children: issues/01 … issues/10
 
 ## Destination
@@ -30,6 +30,10 @@ A working implementation per the ADRs — Router REPL + background watcher (`mai
 - [Grilling: remote review gate](issues/05-remote-review-gate.md) — remote writes are gated by **ingest approval (ADR 0006) + xWiki's native page history** (diff/rollback); no preview/staging layer. Amends ADR 0004 to local-only. Recorded as ADR 0013.
 - [Grilling: demo content domain](issues/04-demo-content-domain.md) — chose a **fictional SaaS engineering wiki** ("Meridian"); 5 invented raw source docs in `demo/sources/` (billing/checkout service designs, checkout-outage runbook, on-call policy, an April-2026 postmortem). Engineered so all three Operations show: Checkout depends synchronously on Billing (Query "blast radius"), and the **Ledger service** is referenced everywhere but has no source doc of its own → deterministic Self-Healing Lint target.
 - [Task: build xWiki backend (MCP client)](issues/09-xwiki-backend-build.md) — thin agent-agnostic xWiki MCP server (`wikiagent/xwiki_mcp_server.py`, FastMCP/stdio, 4 page tools over REST) + `XWikiStore` MCP client (`store.py`) auto-spawning it via a persistent stdio session on a worker-thread event loop (`xwiki_client.py`). `WIKI_BACKEND=xwiki` + `XWIKI_*` config; `list_pages` uses the wiki-wide `/pages?space=` endpoint (per-space `/spaces` misses WebHome-less nested spaces — the gotcha). 44 tests incl. a live round-trip verified against real xWiki; mypy clean.
+- [Task: LLM backend credentials & model choice](issues/07-llm-backend-credentials.md) — credentials in gitignored `.env`; per-backend model selection added (`LMSTUDIO_MODEL` for lmstudio, `MODEL_NAME` for openrouter) via `Settings.model`; fixed `repl.py` using `model_name` instead of the resolved model. Verified: LM Studio function-calling works with `qwen/qwen3.5-9b`.
+- [Task: demo walkthrough & end-to-end verification](issues/10-demo-script-and-verification.md) — `docs/demo.md` (ingest→query→lint, local then xWiki) + README backend story. Verified live on both storage backends: **Ingest** and **Query** are robust on the local 9B (conformant OKF bundle; blast-radius answer synthesizes across pages; xWiki pages created as nested `markdown/1.2` and read back). **Lint caveat**: mechanical conformance scan + plumbing work, but neither available model (`qwen/qwen3.5-9b`, `xiaomi/mimo-v2.5`) converges on the LLM structural fixes — self-healing writes need a stronger model (ADR 0002 trade-off, documented in the demo). Fixed a real `.env` gotcha (`WIKI_DIR` must not contain `RAW_SOURCES_DIR`); bumped `MAX_ITERATIONS` 25→40 for full-wiki Lint headroom.
+
+**Map complete — all 10 tickets closed.** Remaining follow-up (not a ticket): demonstrate Self-Healing Lint writes with a frontier model.
 
 ## Not yet specified
 

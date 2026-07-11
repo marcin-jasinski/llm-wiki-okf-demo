@@ -1,7 +1,7 @@
 # Task: demo walkthrough & end-to-end verification
 
 Labels: wayfinder:task
-Status: ready-for-agent
+Status: closed (2026-07-11)
 Blocked-by: 04-demo-content-domain, 08-core-agent-build, 09-xwiki-backend-build
 Map: ../MAP.md
 

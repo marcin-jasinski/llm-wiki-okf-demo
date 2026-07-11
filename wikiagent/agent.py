@@ -13,7 +13,9 @@ import markdown
 from wikiagent import okf
 from wikiagent.primitives import SandboxError
 
-MAX_ITERATIONS = 25
+# Full-wiki Lint reads every page before it writes fixes, so it needs more
+# headroom than a single Ingest; ceiling stays low enough to stop a runaway loop.
+MAX_ITERATIONS = 40
 
 STR = {"type": "string"}
 

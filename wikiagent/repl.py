@@ -30,12 +30,12 @@ def watch(router: Router, sources_dir, stop: threading.Event):
 
 def main():
     settings, client, prims, ops = build()
-    router = Router(ops, prims, client, model=settings.model_name)
+    router = Router(ops, prims, client, model=settings.model)
     stop = threading.Event()
     threading.Thread(target=watch, args=(router, settings.raw_sources_dir, stop),
                      daemon=True).start()
     print(f"llm-wiki-okf-demo — wiki: {settings.wiki_backend}, "
-          f"llm: {settings.llm_backend}/{settings.model_name}")
+          f"llm: {settings.llm_backend}/{settings.model}")
     print("Talk to the wiki agent (Ctrl-C or 'exit' to quit).")
     try:
         while True:
