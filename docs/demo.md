@@ -22,6 +22,27 @@ show:
   - an **OpenRouter** API key + a tool-capable `MODEL_NAME`.
 - For the xWiki half: Docker, and the demo xWiki stood up once (see below).
 
+## Resetting for a fresh run
+
+`demo/sources/` is working state, regenerated from the tracked
+`demo/sources.baseline/` — reset it any time with:
+
+```
+uv run scripts/reset_sources.py
+```
+
+This discards whatever a previous Ingest/watcher run touched and removes any
+extra file dropped in (e.g. the Ledger doc below), restoring exactly the 5
+starting documents.
+
+If you've also run the xWiki half, clear its demo content (the `WikiDemo`
+space only — the container, superadmin login, and installed markdown
+extension are left alone):
+
+```
+uv run scripts/reset_xwiki.py
+```
+
 ## Setup
 
 Copy `.env.example` to `.env` and fill it in. For the local backend:
@@ -156,6 +177,21 @@ smaller models tried here did *not* converge on the fix: `qwen/qwen3.5-9b`
 models are less predictable inside a tool-calling loop. **Ingest and Query are
 robust even on the local 9B; for the Lint beat, point `LLM_BACKEND`/`MODEL_NAME`
 at a frontier model.**
+
+### Closing the Ledger gap (optional)
+
+The Lint beat above surfaces a gap it deliberately leaves unfixed: the Ledger
+service is referenced by four docs but has no design page of its own. To show
+what happens once that doc actually arrives, drop in the 6th source:
+
+```
+cp demo/sources.baseline.extra/ledger-service-design.md demo/sources/
+```
+
+The watcher ingests it automatically (or ask the Router:
+`ingest sources/ledger-service-design.md`). A follow-up `lint the wiki` should
+now link the new `services/ledger.md` page from `index.md` and from the
+existing cross-references that already mention Ledger.
 
 ### File an answer (optional)
 

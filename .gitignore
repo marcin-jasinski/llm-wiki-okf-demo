@@ -18,9 +18,13 @@ dist/
 # dotenv environment variable files
 .env
 
-# Generated demo wiki bundle — regenerated live by the demo (ticket 10);
-# only the raw sources under demo/sources/ are controlled inputs.
+# Generated demo wiki bundle — regenerated live by the demo (ticket 10).
 demo/wiki/
+
+# Working copy of the raw sources, regenerated from demo/sources.baseline/ by
+# scripts/reset_sources.py. The baseline (and demo/sources.baseline.extra/,
+# the Ledger doc for a later beat) are the controlled, tracked inputs.
+demo/sources/
 
 # Virtual environments
 .venv
