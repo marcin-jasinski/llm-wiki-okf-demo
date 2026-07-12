@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import webbrowser
+from datetime import date
 from pathlib import Path
 
 import markdown
@@ -173,7 +174,9 @@ class Operations:
         self.model = model
 
     def _system_prompt(self, operation_prompt: str) -> str:
-        parts = [OKF_CONVENTIONS]
+        parts = [OKF_CONVENTIONS, f"Today's date is {date.today().isoformat()}. Use it for "
+                 "frontmatter `timestamp:` and log.md date headings — never invent or reuse "
+                 "a date from an existing page."]
         try:
             conventions = self.prims.read_file("wiki/AGENTS.md")
             parts.append("Additional wiki-specific conventions (AGENTS.md):\n" + conventions)

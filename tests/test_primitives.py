@@ -85,6 +85,34 @@ def test_grep_no_match(prims):
     assert prims.grep("zzz-not-there") == []
 
 
+def test_log_md_append_only_allows_growth(prims):
+    prims.write_file("wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: first.\n")
+    prims.write_file(
+        "wiki/log.md",
+        "# Log\n\n## 2026-01-02\n\n* **Update**: second.\n\n"
+        "## 2026-01-01\n\n* **Update**: first.\n",
+    )
+    assert "first" in prims.read_file("wiki/log.md")
+    assert "second" in prims.read_file("wiki/log.md")
+
+
+def test_log_md_append_only_rejects_dropped_entry(prims):
+    prims.write_file(
+        "wiki/log.md",
+        "# Log\n\n## 2026-01-01\n\n* **Update**: first.\n\n* **Update**: second.\n",
+    )
+    with pytest.raises(SandboxError):
+        prims.write_file("wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: second.\n")
+
+
+def test_log_md_append_only_rejects_rewritten_entry(prims):
+    prims.write_file(
+        "wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: first version.\n")
+    with pytest.raises(SandboxError):
+        prims.write_file(
+            "wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: edited version.\n")
+
+
 def test_make_store_selects_local(tmp_path):
     store = make_store("local", wiki_dir=tmp_path)
     assert isinstance(store, LocalStore)

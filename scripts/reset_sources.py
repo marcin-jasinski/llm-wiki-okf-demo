@@ -1,10 +1,16 @@
-"""Restore demo/sources/ to the clean baseline (docs/demo.md).
+"""Clear demo/sources/ and demo/wiki/ back to empty (docs/demo.md).
 
-demo/sources/ is regenerated working state (gitignored, like demo/wiki/);
-demo/sources.baseline/ is the tracked canonical copy of the 5 starting
-documents. Run before a demo to discard whatever a prior Ingest/watcher run
-left behind, plus any extra file dropped in for a later beat (e.g. the Ledger
-doc in demo/sources.baseline.extra/).
+Both are gitignored working state: demo/sources/ is what the watcher/Ingest
+consumes, demo/wiki/ is what Ingest generates (local backend only — for xWiki
+use scripts/reset_xwiki.py instead). Run before a demo to discard whatever a
+prior run left behind. Seeding demo/sources/ from the tracked
+demo/sources.baseline/ (the canonical 5 starting documents) is a separate,
+explicit step done when starting the demo — see docs/demo.md.
+
+Both directories are cleared in place (contents removed, directory itself
+kept) rather than deleted and recreated — the background watcher holds a
+handle on demo/sources/, and deleting it out from under a running watcher
+breaks the watch.
 
 Run:  uv run scripts/reset_sources.py
 """
@@ -14,15 +20,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 SOURCES = ROOT / "demo" / "sources"
-BASELINE = ROOT / "demo" / "sources.baseline"
+WIKI = ROOT / "demo" / "wiki"
+
+
+def _clear(dir_path: Path) -> None:
+    """Empty dir_path in place, creating it if missing."""
+    dir_path.mkdir(parents=True, exist_ok=True)
+    for child in dir_path.iterdir():
+        shutil.rmtree(child) if child.is_dir() else child.unlink()
 
 
 def main() -> None:
-    if SOURCES.exists():
-        shutil.rmtree(SOURCES)
-    shutil.copytree(BASELINE, SOURCES)
-    count = len(list(BASELINE.glob("*.md")))
-    print(f"reset demo/sources/ to the {count} baseline document(s)")
+    _clear(SOURCES)
+    print("cleared demo/sources/")
+
+    _clear(WIKI)
+    print("cleared demo/wiki/")
 
 
 if __name__ == "__main__":

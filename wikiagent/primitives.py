@@ -45,8 +45,26 @@ class Primitives:
             raise SandboxError("write_file is only allowed inside wiki/")
         if rel == "AGENTS.md":
             raise SandboxError("wiki/AGENTS.md is read-only (wiki-conventions doc)")
+        if rel == "log.md":
+            self._check_log_append_only(content)
         self.store.write(rel, content)
         return f"wrote {path}"
+
+    def _check_log_append_only(self, new_content: str) -> None:
+        """log.md is append-only (OKF spec §7): every existing entry must still
+        appear, in order, in the new content — writes can add lines, never
+        drop or rewrite them."""
+        try:
+            old_content = self.store.read("log.md")
+        except (FileNotFoundError, OSError):
+            return
+        old_lines = [ln for ln in old_content.splitlines() if ln.strip()]
+        new_lines = iter(ln for ln in new_content.splitlines() if ln.strip())
+        for old_line in old_lines:
+            if not any(new_line == old_line for new_line in new_lines):
+                raise SandboxError(
+                    "log.md is append-only: this write drops or alters an "
+                    f"existing entry: {old_line[:100]!r}")
 
     def list_dir(self, path: str) -> list[str]:
         root, rel = _split(path)

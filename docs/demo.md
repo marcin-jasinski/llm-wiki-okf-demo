@@ -24,16 +24,18 @@ show:
 
 ## Resetting for a fresh run
 
-`demo/sources/` is working state, regenerated from the tracked
-`demo/sources.baseline/` — reset it any time with:
+`demo/sources/` is working state fed to the watcher/Ingest; `demo/wiki/` is
+the wiki bundle Ingest generates (local backend only). Clear both any time
+with:
 
 ```
 uv run scripts/reset_sources.py
 ```
 
-This discards whatever a previous Ingest/watcher run touched and removes any
-extra file dropped in (e.g. the Ledger doc below), restoring exactly the 5
-starting documents.
+This empties `demo/sources/` (discarding whatever a previous Ingest/watcher
+run touched, plus any extra file dropped in, e.g. the Ledger doc below) and
+empties `demo/wiki/` so the next Ingest regenerates it from scratch. It does
+**not** reseed `demo/sources/` — that's a separate step, see Part 1 below.
 
 If you've also run the xWiki half, clear its demo content (the `WikiDemo`
 space only — the container, superadmin login, and installed markdown
@@ -64,6 +66,13 @@ LMSTUDIO_MODEL=qwen/qwen3.5-9b            # used when LLM_BACKEND=lmstudio
 > gitignored — it is regenerated live by this walkthrough.
 
 ## Part 1 — local backend
+
+Seed the working sources from the tracked baseline (the canonical 5 starting
+documents):
+
+```
+cp demo/sources.baseline/*.md demo/sources/
+```
 
 Start the single entry point (background watcher + Router REPL, ADR 0008):
 
