@@ -9,6 +9,47 @@ import webbrowser
 from datetime import date
 from pathlib import Path
 
+
+def parse_loose_json(s: str):
+    """Parse JSON that may have extra trailing characters (e.g. from LLM tool calls).
+
+    Some models emit JSON like '{"key": "value"}}}' or '{"key": "value"}extra'.
+    This function finds the first valid JSON object and ignores trailing garbage.
+    """
+    s = s.strip()
+    # Quick path: valid JSON
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: find the end of the first valid JSON object by bracket counting
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(s):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    # Found the end of the first top-level object
+                    return json.loads(s[: i + 1])
+
+    # If we get here, no balanced object was found
+    raise json.JSONDecodeError("No valid JSON object found", s, 0)
+
+
 import markdown
 
 from wikiagent import okf
@@ -40,24 +81,30 @@ TOOL_SPECS = {
     "read_file": tool_spec(
         "read_file",
         "Read a file. Paths start with wiki/ (the wiki) or sources/ (read-only raw sources).",
-        {"path": STR}, ["path"]),
+        {"path": STR},
+        ["path"],
+    ),
     "write_file": tool_spec(
         "write_file",
         "Create or overwrite a file. Only wiki/ paths are writable.",
-        {"path": STR, "content": STR}, ["path", "content"]),
+        {"path": STR, "content": STR},
+        ["path", "content"],
+    ),
     "list_dir": tool_spec(
         "list_dir",
         "List one directory level under wiki/ or sources/. Subdirectories end with '/'.",
-        {"path": STR}, ["path"]),
+        {"path": STR},
+        ["path"],
+    ),
     "grep": tool_spec(
         "grep",
         "Regex-search file contents. Returns path:line:text hits.",
         {"pattern": STR, "root": {"type": "string", "enum": ["wiki", "sources"]}},
-        ["pattern"]),
+        ["pattern"],
+    ),
     "fetch_url": tool_spec(
-        "fetch_url",
-        "Fetch a URL and return its body as text.",
-        {"url": STR}, ["url"]),
+        "fetch_url", "Fetch a URL and return its body as text.", {"url": STR}, ["url"]
+    ),
 }
 
 OKF_CONVENTIONS = """\
@@ -129,24 +176,41 @@ def run_tool_loop(client, model: str, messages: list, tools: list, dispatch) -> 
     """
     for _ in range(MAX_ITERATIONS):
         response = client.chat.completions.create(
-            model=model, messages=messages, tools=tools)
+            model=model, messages=messages, tools=tools
+        )
+        if not response.choices or response.choices[0] is None:
+            error_msg = (
+                f"error: LLM returned empty response (no choices). Response: {response}"
+            )
+            messages.append({"role": "assistant", "content": error_msg})
+            return error_msg
         m = response.choices[0].message
         if not m.tool_calls:
             messages.append({"role": "assistant", "content": m.content})
             return m.content or ""
-        messages.append({
-            "role": "assistant",
-            "content": m.content,
-            "tool_calls": [
-                {"id": c.id, "type": "function",
-                 "function": {"name": c.function.name,
-                              "arguments": c.function.arguments}}
-                for c in m.tool_calls],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": m.content,
+                "tool_calls": [
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {
+                            "name": c.function.name,
+                            "arguments": c.function.arguments,
+                        },
+                    }
+                    for c in m.tool_calls
+                ],
+            }
+        )
         for c in m.tool_calls:
             # stderr: stdout belongs to the MCP stdio transport in mcp_server.py
-            print(f"  [{c.function.name}] {c.function.arguments[:120]}", file=sys.stderr)
-            result = dispatch(c.function.name, json.loads(c.function.arguments))
+            print(
+                f"  [{c.function.name}] {c.function.arguments[:120]}", file=sys.stderr
+            )
+            result = dispatch(c.function.name, parse_loose_json(c.function.arguments))
             messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
     # Leave `messages` ending on an assistant turn, not a tool result, so the
     # Router's persistent history stays a valid conversation.
@@ -159,7 +223,8 @@ def render_answer_html(answer_md: str) -> Path:
     """Render a markdown answer to a styled HTML file; return its path."""
     body = markdown.markdown(answer_md, extensions=["tables", "fenced_code"])
     f = tempfile.NamedTemporaryFile(
-        "w", suffix=".html", prefix="wiki-answer-", delete=False, encoding="utf-8")
+        "w", suffix=".html", prefix="wiki-answer-", delete=False, encoding="utf-8"
+    )
     with f:
         f.write(HTML_TEMPLATE.format(body=body))
     return Path(f.name)
@@ -174,12 +239,17 @@ class Operations:
         self.model = model
 
     def _system_prompt(self, operation_prompt: str) -> str:
-        parts = [OKF_CONVENTIONS, f"Today's date is {date.today().isoformat()}. Use it for "
-                 "frontmatter `timestamp:` and log.md date headings — never invent or reuse "
-                 "a date from an existing page."]
+        parts = [
+            OKF_CONVENTIONS,
+            f"Today's date is {date.today().isoformat()}. Use it for "
+            "frontmatter `timestamp:` and log.md date headings — never invent or reuse "
+            "a date from an existing page.",
+        ]
         try:
             conventions = self.prims.read_file("wiki/AGENTS.md")
-            parts.append("Additional wiki-specific conventions (AGENTS.md):\n" + conventions)
+            parts.append(
+                "Additional wiki-specific conventions (AGENTS.md):\n" + conventions
+            )
         except (FileNotFoundError, OSError):
             pass
         parts.append(operation_prompt)
@@ -200,26 +270,36 @@ class Operations:
             {"role": "system", "content": self._system_prompt(operation_prompt)},
             {"role": "user", "content": user_msg},
         ]
-        return run_tool_loop(self.client, self.model, messages,
-                             [TOOL_SPECS[n] for n in tool_names], self._dispatch)
+        return run_tool_loop(
+            self.client,
+            self.model,
+            messages,
+            [TOOL_SPECS[n] for n in tool_names],
+            self._dispatch,
+        )
 
     def ingest(self, source: str) -> str:
         """Integrate a sources/ file or a URL into the wiki."""
-        return self._loop(INGEST_PROMPT, f"Ingest this source: {source}",
-                          ["read_file", "write_file", "list_dir", "grep", "fetch_url"])
+        return self._loop(
+            INGEST_PROMPT,
+            f"Ingest this source: {source}",
+            ["read_file", "write_file", "list_dir", "grep", "fetch_url"],
+        )
 
     def query(self, question: str, open_browser: bool = True) -> str:
         """Answer a question from the wiki. Read-only (ADR 0006)."""
-        answer = self._loop(QUERY_PROMPT, question,
-                            ["read_file", "list_dir", "grep"])
+        answer = self._loop(QUERY_PROMPT, question, ["read_file", "list_dir", "grep"])
         if open_browser and answer:
             webbrowser.open(render_answer_html(answer).as_uri())
         return answer
 
     def _conformance_problems(self) -> list[str]:
         """Mechanical OKF conformance scan over the wiki, backend-agnostic."""
-        pages = {p: self.prims.store.read(p)
-                 for p in self.prims.store.walk() if p.endswith(".md")}
+        pages = {
+            p: self.prims.store.read(p)
+            for p in self.prims.store.walk()
+            if p.endswith(".md")
+        }
         return okf.check_pages(pages)
 
     def lint(self) -> str:
@@ -227,7 +307,10 @@ class Operations:
         user_msg = "Lint the wiki now."
         problems = self._conformance_problems()
         if problems:
-            user_msg += ("\n\nA mechanical conformance scan already found these "
-                         "non-conformant pages — fix each one:\n" + "\n".join(problems))
-        return self._loop(LINT_PROMPT, user_msg,
-                          ["read_file", "write_file", "list_dir", "grep"])
+            user_msg += (
+                "\n\nA mechanical conformance scan already found these "
+                "non-conformant pages — fix each one:\n" + "\n".join(problems)
+            )
+        return self._loop(
+            LINT_PROMPT, user_msg, ["read_file", "write_file", "list_dir", "grep"]
+        )
