@@ -103,9 +103,26 @@ def test_make_store_selects_xwiki(monkeypatch):
     """make_store wires the real MCP client; stub it so no subprocess spawns."""
     import wikiagent.xwiki_client as xc
     monkeypatch.setattr(xc, "make_page_client", lambda cfg: FakePageClient())
-    s = make_store("xwiki", xwiki={"space": "WikiDemo"})
+    s = make_store("xwiki", xwiki={"space": "WikiDemo", "base_url": "http://localhost:8080"})
     assert isinstance(s, XWikiStore) and s.space == "WikiDemo"
+    assert s.page_url("a.md") == "http://localhost:8080/bin/view/WikiDemo/a"
 
 
 def test_make_store_still_selects_local(tmp_path):
     assert isinstance(make_store("local", wiki_dir=tmp_path), LocalStore)
+
+
+def test_local_store_page_url_is_none(tmp_path):
+    # LocalStore has no live URL — the answer renderer must render it locally instead.
+    assert LocalStore(tmp_path).page_url("a.md") is None
+
+
+def test_xwiki_store_page_url_maps_path_to_bin_view():
+    store = XWikiStore(FakePageClient(), space="WikiDemo", base_url="http://localhost:8080")
+    assert store.page_url("tables/orders.md") == \
+        "http://localhost:8080/bin/view/WikiDemo/tables/orders"
+
+
+def test_xwiki_store_page_url_strips_trailing_slash_on_base():
+    store = XWikiStore(FakePageClient(), space="WikiDemo", base_url="http://localhost:8080/")
+    assert store.page_url("index.md") == "http://localhost:8080/bin/view/WikiDemo/index"

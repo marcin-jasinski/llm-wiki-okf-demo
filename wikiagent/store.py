@@ -7,6 +7,7 @@ ADR 0012.
 
 from pathlib import Path
 from typing import List, Optional, Protocol
+from urllib.parse import quote
 
 
 class LocalStore:
@@ -44,6 +45,10 @@ class LocalStore:
             if p.is_file()
         )
 
+    def page_url(self, rel: str) -> Optional[str]:
+        """No live URL for a page on disk — the answer renderer renders it locally instead."""
+        return None
+
 
 class PageClient(Protocol):
     """The generic xWiki page operations XWikiStore drives (over MCP).
@@ -65,9 +70,16 @@ class XWikiStore:
     page `c` under nested spaces [root, a, b]; content is stored verbatim.
     """
 
-    def __init__(self, client: PageClient, space: str):
+    def __init__(self, client: PageClient, space: str, base_url: str = ""):
         self.client = client
         self.space = space
+        self.base_url = base_url.rstrip("/")
+
+    def page_url(self, rel: str) -> Optional[str]:
+        """Live xWiki view URL for a page (ADR 0012's path<->space mapping, ADR 0015)."""
+        spaces, name = self._to_ref(rel)
+        return self.base_url + "/bin/view/" + "/".join(
+            quote(part, safe="") for part in [*spaces, name])
 
     def _to_ref(self, rel: str) -> tuple[list[str], str]:
         rel = rel.replace("\\", "/").strip("/")
@@ -116,5 +128,6 @@ def make_store(wiki_backend: str, *, wiki_dir=None, xwiki=None):
         return LocalStore(wiki_dir)
     if wiki_backend == "xwiki":
         from wikiagent.xwiki_client import make_page_client
-        return XWikiStore(make_page_client(xwiki), xwiki["space"])
+        return XWikiStore(make_page_client(xwiki), xwiki["space"],
+                          base_url=xwiki.get("base_url", ""))
     raise ValueError(f"unknown WIKI_BACKEND: {wiki_backend!r} (expected local|xwiki)")

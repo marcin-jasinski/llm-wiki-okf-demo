@@ -3,6 +3,7 @@ loop over the five file primitives (ADR 0002, README).
 """
 
 import json
+import re
 import sys
 import tempfile
 import webbrowser
@@ -219,15 +220,55 @@ def run_tool_loop(client, model: str, messages: list, tools: list, dispatch) -> 
     return stopped
 
 
-def render_answer_html(answer_md: str) -> Path:
-    """Render a markdown answer to a styled HTML file; return its path."""
-    body = markdown.markdown(answer_md, extensions=["tables", "fenced_code"])
-    f = tempfile.NamedTemporaryFile(
-        "w", suffix=".html", prefix="wiki-answer-", delete=False, encoding="utf-8"
-    )
-    with f:
-        f.write(HTML_TEMPLATE.format(body=body))
-    return Path(f.name)
+# Matches the OKF cross-link convention (bundle-relative, optionally leading-/):
+# [title](/path/page.md) or [title](path/page.md). Also matches an external
+# https://.../x.md link syntactically — _rewrite_links leaves those alone since
+# they never appear in `known` (the store's own bundle-relative paths).
+WIKI_LINK_RE = re.compile(r"\]\(/?([^)\s]+\.md)\)")
+
+
+def _rewrite_links(text: str, store, known: set[str], mirror_dir: Path) -> str:
+    """Point each cross-link at something clickable (ADR 0015): the page's live
+    URL if the store has one (xWiki), else its rendered sibling under mirror_dir.
+    Links to pages the store doesn't have (not-yet-written concepts, allowed by
+    the OKF convention) keep their original bundle-relative href — still an inert
+    link once rendered, same as before this change; there's nothing to point at yet.
+    """
+    def repl(m: re.Match) -> str:
+        rel = m.group(1)
+        if rel not in known:
+            return m.group(0)
+        url = store.page_url(rel) or (mirror_dir / (rel[:-3] + ".html")).as_uri()
+        return f"]({url})"
+    return WIKI_LINK_RE.sub(repl, text)
+
+
+def _render_page(md_text: str, store, known: set[str], mirror_dir: Path, out_path: Path) -> None:
+    body = markdown.markdown(_rewrite_links(md_text, store, known, mirror_dir),
+                             extensions=["tables", "fenced_code"])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(HTML_TEMPLATE.format(body=body), encoding="utf-8")
+
+
+def render_answer_html(answer_md: str, store) -> Path:
+    """Render a markdown answer to a styled HTML file, with wiki-page links
+    rewritten so they actually work when opened (ADR 0015): the local backend
+    renders the whole wiki bundle alongside the answer so multi-hop links stay
+    clickable; the xWiki backend rewrites links to the page's live view URL and
+    renders nothing locally.
+    """
+    mirror_dir = Path(tempfile.mkdtemp(prefix="wiki-answer-"))
+    known = {p for p in store.walk() if p.endswith(".md")}
+    # ponytail: re-renders the whole local bundle on every query (ADR 0015) — O(pages)
+    # markdown renders per query. Fine at demo scale; cache by store write-version if a
+    # real bundle ever makes this slow.
+    for rel in known:
+        if store.page_url(rel) is not None:
+            continue  # xWiki backend: the page opens live, nothing to render
+        _render_page(store.read(rel), store, known, mirror_dir, mirror_dir / (rel[:-3] + ".html"))
+    answer_path = mirror_dir / "answer.html"
+    _render_page(answer_md, store, known, mirror_dir, answer_path)
+    return answer_path
 
 
 class Operations:
@@ -290,7 +331,7 @@ class Operations:
         """Answer a question from the wiki. Read-only (ADR 0006)."""
         answer = self._loop(QUERY_PROMPT, question, ["read_file", "list_dir", "grep"])
         if open_browser and answer:
-            webbrowser.open(render_answer_html(answer).as_uri())
+            webbrowser.open(render_answer_html(answer, self.prims.store).as_uri())
         return answer
 
     def _conformance_problems(self) -> list[str]:

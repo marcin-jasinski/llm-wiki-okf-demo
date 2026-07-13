@@ -17,7 +17,7 @@ One of the agent's three high-level capabilities — Ingest, Query, Lint. Expose
 _Avoid_: command, mode
 
 **Router**:
-The top-level tool-calling loop behind the interactive REPL. Its tools are the three Operations plus `file_answer` — a fourth, deterministic (non-LLM) tool that files the last Query answer into the wiki verbatim, only on explicit human request (ADR 0006). It interprets the user's natural language and decides which to invoke. Distinct from the inner tool loop each Operation runs over the file primitives (read_file/write_file/list_dir/grep/fetch_url).
+The top-level tool-calling loop behind the interactive REPL. Its LLM-facing tools are the three Operations; it interprets the user's natural language and decides which to invoke. Distinct from the inner tool loop each Operation runs over the file primitives (read_file/write_file/list_dir/grep/fetch_url). Filing the last Query answer into the wiki verbatim is a separate, deterministic (non-LLM) REPL step — a y/n prompt shown after every Query answer, not a Router tool (ADR 0006, amended by ADR 0014).
 _Avoid_: dispatcher, orchestrator
 
 **Wiki Store**:

@@ -29,7 +29,7 @@ uv run main.py
 
 This starts:
 - a **background watcher**, polling `RAW_SOURCES_DIR` — drop a new source file in and it gets ingested automatically;
-- a **foreground REPL** — talk to it in plain language ("how do I do X?", "ingest it", "lint the wiki") and the agent (the *Router*) figures out which Operation to call. See [`docs/adr/0008`](docs/adr/0008-single-process-router.md).
+- a **foreground REPL** — talk to it in plain language ("how do I do X?", "ingest sources/notes.md", "lint the wiki") and the agent (the *Router*) figures out which Operation to call. See [`docs/adr/0008`](docs/adr/0008-single-process-router.md). After every Query answer it asks `y/n` to file the answer into the wiki verbatim (deterministic, human-gated — [`docs/adr/0006`](docs/adr/0006-human-gated-ingest.md), [`docs/adr/0014`](docs/adr/0014-automatic-answer-filing.md)).
 
 For external MCP hosts (Claude Desktop, Claude Code, etc.) the same three operations are also available as an MCP server, run separately:
 

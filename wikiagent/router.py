@@ -1,9 +1,11 @@
 """The Router: the top-level tool-calling loop behind the REPL (ADR 0008).
 
-Its only LLM-facing tools are the three Operations plus `file_answer`, the
-human-triggered, deterministic filing of the last Query answer (ADR 0006).
+Its LLM-facing tools are the three Operations. Filing a Query answer into the
+wiki stays human-gated but is now a deterministic REPL-level y/n prompt, not
+an LLM-decided tool call (ADR 0006, amended by ADR 0014).
 """
 
+import re
 import threading
 
 from wikiagent.agent import tool_spec, STR, run_tool_loop
@@ -17,9 +19,6 @@ right tool; you never read or write wiki files yourself:
   (e.g. "sources/notes.md") or URLs.
 - query_wiki: answer a question from the wiki (read-only).
 - lint_wiki: self-heal structural wiki issues.
-- file_answer: save the previous query_wiki answer into the wiki, verbatim. Only call this
-  when the user explicitly asks to keep/file/ingest the answer. Pick a sensible new
-  wiki/... path and a short title/description.
 Relay each tool's result back to the user concisely. If the request matches no tool, just
 answer conversationally and mention what you can do."""
 
@@ -29,12 +28,12 @@ ROUTER_TOOLS = [
     tool_spec("query_wiki", "Answer a question from the wiki (read-only).",
               {"question": STR}, ["question"]),
     tool_spec("lint_wiki", "Self-heal structural wiki issues.", {}, []),
-    tool_spec("file_answer",
-              "Save the last query answer to the wiki verbatim (human-approved).",
-              {"path": STR, "title": STR, "description": STR,
-               "tags": {"type": "array", "items": STR}},
-              ["path", "title"]),
 ]
+
+
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug[:60] or "answer"
 
 
 class Router:
@@ -45,9 +44,12 @@ class Router:
         self.model = model
         self.lock = threading.Lock()  # serializes Operations with the watcher (ADR 0008)
         self.last_answer = None
+        self.last_question = None
+        self.awaiting_save = False  # a fresh query_wiki answer is offerable to file (ADR 0014)
         self.messages = [{"role": "system", "content": ROUTER_PROMPT}]
 
     def handle(self, text: str) -> str:
+        self.awaiting_save = False
         self.messages.append({"role": "user", "content": text})
         return run_tool_loop(self.client, self.model, self.messages,
                              ROUTER_TOOLS, self._dispatch)
@@ -57,16 +59,22 @@ class Router:
         with self.lock:
             return self.ops.ingest(source)
 
-    def _file_answer(self, path: str, title: str, description: str = "",
-                     tags: list | None = None) -> str:
+    def file_last_answer(self) -> str:
+        """Deterministically file the last query answer (ADR 0006, amended by ADR 0014).
+
+        Triggered by the REPL's y/n prompt, never by the LLM — the write is a
+        plain wrap-with-frontmatter, not a second judgment call.
+        """
         if not self.last_answer:
             return "error: no query answer to file — run a query first"
+        path = f"wiki/query-answers/{_slugify(self.last_question or 'answer')}.md"
         page = wrap_frontmatter(self.last_answer, type="Query Answer",
-                                title=title, description=description, tags=tags)
+                                title=(self.last_question or "Query answer").strip())
         try:
             self.prims.write_file(path, page)
         except SandboxError as e:
             return f"error: {e}"
+        self.awaiting_save = False
         return f"filed the answer at {path}"
 
     def _dispatch(self, name: str, args: dict) -> str:
@@ -76,11 +84,10 @@ class Router:
             with self.lock:
                 answer = self.ops.query(args["question"])
                 self.last_answer = answer
+                self.last_question = args["question"]
+                self.awaiting_save = True
             return answer
         if name == "lint_wiki":
             with self.lock:
                 return self.ops.lint()
-        if name == "file_answer":
-            with self.lock:
-                return self._file_answer(**args)
         return f"error: unknown tool {name}"

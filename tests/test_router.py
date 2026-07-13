@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from wikiagent.okf import check_page
 from wikiagent.primitives import Primitives
 from wikiagent.repl import new_files
-from wikiagent.router import Router
+from wikiagent.router import ROUTER_TOOLS, Router
 from wikiagent.store import LocalStore
 
 from conftest import FakeClient, msg, tool_call
@@ -59,34 +59,52 @@ def test_router_conversation_persists_across_turns(tmp_path):
     assert "hello" in contents and "hi" in contents
 
 
-def test_file_answer_writes_conformant_page(tmp_path):
+def test_query_sets_awaiting_save_and_last_question(tmp_path):
+    client = FakeClient([msg(tool_calls=[tool_call("query_wiki", {"question": "how join?"})]),
+                        msg(content="Alpha joins beta on gamma.")])
+    router = make_router(tmp_path, client)
+    router.handle("how join?")
+    assert router.awaiting_save is True
+    assert router.last_question == "how join?"
+    assert router.last_answer == "Alpha joins beta on gamma."
+
+
+def test_awaiting_save_resets_on_next_non_query_turn(tmp_path):
     client = FakeClient([
         msg(tool_calls=[tool_call("query_wiki", {"question": "how join?"})]),
         msg(content="Alpha joins beta on gamma."),
-        msg(tool_calls=[tool_call("file_answer", {
-            "path": "wiki/answers/joins.md", "title": "How alpha joins beta",
-            "description": "Join key answer."})]),
-        msg(content="Filed."),
+        msg(content="hi"),
     ])
     router = make_router(tmp_path, client)
     router.handle("how join?")
-    router.handle("ingest it")
-    page = (tmp_path / "wiki" / "answers" / "joins.md").read_text(encoding="utf-8")
-    assert check_page(page) == []
-    # ADR 0006: body is the shown answer verbatim
-    assert "Alpha joins beta on gamma." in page
+    router.handle("hello")
+    assert router.awaiting_save is False
 
 
-def test_file_answer_without_prior_query_errors(tmp_path):
-    client = FakeClient([
-        msg(tool_calls=[tool_call("file_answer", {"path": "wiki/a.md", "title": "t"})]),
-        msg(content="Nothing to file."),
-    ])
+def test_file_last_answer_writes_conformant_page(tmp_path):
+    client = FakeClient([msg(tool_calls=[tool_call("query_wiki", {"question": "How does alpha join beta?"})]),
+                        msg(content="Alpha joins beta on gamma.")])
     router = make_router(tmp_path, client)
-    router.handle("ingest it")
-    tool_msg = [m for m in client.calls[-1]["messages"] if m["role"] == "tool"][0]
-    assert "error" in tool_msg["content"].lower()
-    assert not (tmp_path / "wiki" / "a.md").exists()
+    router.handle("How does alpha join beta?")
+    result = router.file_last_answer()
+    assert result == "filed the answer at wiki/query-answers/how-does-alpha-join-beta.md"
+    page = (tmp_path / "wiki" / "query-answers" / "how-does-alpha-join-beta.md").read_text(encoding="utf-8")
+    assert check_page(page) == []
+    # ADR 0006/0014: body is the shown answer verbatim
+    assert "Alpha joins beta on gamma." in page
+    assert router.awaiting_save is False
+
+
+def test_file_last_answer_without_prior_query_errors(tmp_path):
+    router = make_router(tmp_path, FakeClient([]))
+    result = router.file_last_answer()
+    assert "error" in result.lower()
+    assert router.prims.store.walk() == []
+
+
+def test_file_answer_tool_no_longer_offered():
+    names = [t["function"]["name"] for t in ROUTER_TOOLS]
+    assert "file_answer" not in names
 
 
 def test_new_files_detects_only_additions(tmp_path):

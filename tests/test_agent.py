@@ -5,9 +5,11 @@ the primitives and returns the final answer; Query is read-only (ADR 0006);
 AGENTS.md is folded into the system prompt when present.
 """
 
+from pathlib import Path
+
 import pytest
 
-from wikiagent.agent import Operations
+from wikiagent.agent import Operations, render_answer_html
 from wikiagent.primitives import Primitives
 from wikiagent.store import LocalStore
 
@@ -98,3 +100,68 @@ def test_loop_stops_at_max_iterations(wiki):
     assert "iteration limit" in result
     # history must end on an assistant turn, not a tool result (Router persistence)
     assert client.calls[-1]["messages"][-1]["role"] == "assistant"
+
+
+class FakeUrlStore:
+    """Stub store where every page has a live URL (xWiki-shaped) — render_answer_html
+    must never render these locally, only rewrite links to the live URL."""
+
+    def __init__(self, pages: dict[str, str]):
+        self.pages = pages
+
+    def walk(self):
+        return sorted(self.pages)
+
+    def read(self, rel):
+        return self.pages[rel]
+
+    def page_url(self, rel):
+        return f"https://xwiki.example/bin/view/{rel[:-3]}"
+
+
+def _linked_path(html_text: str) -> Path:
+    """The filesystem path behind the first file:// href in rendered HTML."""
+    from urllib.parse import urlparse
+    from urllib.request import url2pathname
+    href = html_text.split('href="')[1].split('"')[0]
+    return Path(url2pathname(urlparse(href).path))
+
+
+def test_render_answer_html_rewrites_local_link_to_rendered_page(tmp_path):
+    store = LocalStore(tmp_path)
+    store.write("concepts/beta.md", "---\ntype: Concept\n---\nBeta body.\n")
+    out = render_answer_html("See [Beta](/concepts/beta.md).", store)
+    html = out.read_text(encoding="utf-8")
+    assert html.count('href="file://') == 1
+    linked = _linked_path(html)
+    assert linked.exists()
+    assert "Beta body." in linked.read_text(encoding="utf-8")
+
+
+def test_render_answer_html_multi_hop_links_resolve(tmp_path):
+    store = LocalStore(tmp_path)
+    store.write("a.md", "---\ntype: Concept\n---\nSee [B](/b.md).\n")
+    store.write("b.md", "---\ntype: Concept\n---\nSee [C](/c.md).\n")
+    store.write("c.md", "---\ntype: Concept\n---\nEnd of the chain.\n")
+    out = render_answer_html("Start at [A](/a.md).", store)
+    a_html = _linked_path(out.read_text(encoding="utf-8"))
+    b_html = _linked_path(a_html.read_text(encoding="utf-8"))
+    c_html = _linked_path(b_html.read_text(encoding="utf-8"))
+    assert "End of the chain." in c_html.read_text(encoding="utf-8")
+
+
+def test_render_answer_html_leaves_not_yet_written_link_alone(tmp_path):
+    store = LocalStore(tmp_path)
+    out = render_answer_html("See [Ghost](/concepts/ghost.md).", store)
+    html = out.read_text(encoding="utf-8")
+    # unresolved link keeps its original, still-inert href verbatim — not rewritten
+    assert 'href="/concepts/ghost.md"' in html
+
+
+def test_render_answer_html_uses_live_url_for_xwiki_backend(tmp_path):
+    store = FakeUrlStore({"concepts/beta.md": "---\ntype: Concept\n---\nBeta body.\n"})
+    out = render_answer_html("See [Beta](/concepts/beta.md).", store)
+    html = out.read_text(encoding="utf-8")
+    assert 'href="https://xwiki.example/bin/view/concepts/beta"' in html
+    # no local rendering happens when every page has a live URL
+    assert not any(out.parent.rglob("beta.html"))
