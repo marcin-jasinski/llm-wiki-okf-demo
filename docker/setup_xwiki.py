@@ -1,8 +1,12 @@
 """One-shot, idempotent setup for the demo xWiki instance (ticket 03).
 
-Run after `docker compose up -d` in this directory:
+Run after `docker compose up -d` (or `podman compose up -d`) in this directory:
 
     uv run docker/setup_xwiki.py [--skip-flavor]
+
+Set XWIKI_ENGINE=podman to use Podman instead of Docker. The default
+container name assumes each engine's compose naming convention; override
+with XWIKI_CONTAINER if yours differs.
 
 What it does:
 1. Waits for xWiki REST to answer.
@@ -30,7 +34,9 @@ import httpx
 BASE_URL = "http://localhost:8080"
 USER = "superadmin"
 PASSWORD = "xwiki-demo"  # local demo instance only — not reachable from outside
-CONTAINER = os.environ.get("XWIKI_CONTAINER", "docker-xwiki-1")
+ENGINE = os.environ.get("XWIKI_ENGINE", "docker")  # or "podman"
+# docker compose v2 names containers "dir-service-1"; podman-compose uses "dir_service_1"
+CONTAINER = os.environ.get("XWIKI_CONTAINER", "docker-xwiki-1" if ENGINE == "docker" else "docker_xwiki_1")
 XWIKI_VERSION = "18.5.0"
 MARKDOWN_EXTENSION = ("org.xwiki.contrib.markdown:syntax-markdown-commonmark12", "8.9")
 FLAVOR = ("org.xwiki.platform:xwiki-platform-distribution-flavor-mainwiki", XWIKI_VERSION)
@@ -95,12 +101,12 @@ def configure_container():
         'cp $PROPS /usr/local/xwiki/xwiki.properties'
     )
     subprocess.run(
-        ["docker", "exec",
+        [ENGINE, "exec",
          "-e", "CFG=/usr/local/tomcat/webapps/ROOT/WEB-INF/xwiki.cfg",
          "-e", "PROPS=/usr/local/tomcat/webapps/ROOT/WEB-INF/xwiki.properties",
          CONTAINER, "sh", "-c", script],
         check=True)
-    subprocess.run(["docker", "restart", CONTAINER], check=True, capture_output=True)
+    subprocess.run([ENGINE, "restart", CONTAINER], check=True, capture_output=True)
     wait_for_rest()
 
 

@@ -1,5 +1,6 @@
 # Local self-hosted xWiki for the demo's remote wiki backend (ticket 03).
 #   docker compose up -d          then:   python docker/setup_xwiki.py
+#   (or, on Podman)  podman compose up -d   then:  XWIKI_ENGINE=podman python docker/setup_xwiki.py
 # Web UI / REST: http://localhost:8080  (superadmin / see setup_xwiki.py)
 services:
   db:

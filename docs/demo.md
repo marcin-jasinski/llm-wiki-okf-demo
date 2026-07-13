@@ -20,7 +20,7 @@ show:
   - **LM Studio** with a tool-capable model loaded (the run below used
     `qwen/qwen3.5-9b`), or
   - an **OpenRouter** API key + a tool-capable `MODEL_NAME`.
-- For the xWiki half: Docker, and the demo xWiki stood up once (see below).
+- For the xWiki half: Docker or Podman, and the demo xWiki stood up once (see below).
 
 ## Resetting for a fresh run
 
@@ -220,6 +220,13 @@ Stand up the demo xWiki once (idempotent):
 ```
 cd docker && docker compose up -d
 uv run docker/setup_xwiki.py          # enables superadmin + markdown/1.2
+```
+
+On Podman instead of Docker:
+
+```
+cd docker && podman compose up -d
+XWIKI_ENGINE=podman uv run docker/setup_xwiki.py
 ```
 
 Then flip **one section** of `.env` — the storage backend — and set the xWiki
