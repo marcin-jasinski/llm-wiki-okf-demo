@@ -154,13 +154,16 @@ Your final message is the answer itself, in markdown, citing wiki pages you drew
 bundle-relative links. If the wiki cannot answer, say what is missing."""
 
 LINT_PROMPT = """\
-Operation: Lint. Self-heal STRUCTURAL issues only (ADR 0007):
-- orphan pages (no inbound links): link them from index.md or a related page;
-- pages missing from wiki/index.md: add entries;
-- concepts mentioned across pages but with no cross-reference link: add the links;
-- non-conformant pages (missing/empty frontmatter `type`): fix the frontmatter.
-`wiki/AGENTS.md` is the wiki-conventions doc: it is exempt from these rules and must
-never be rewritten.
+Operation: Lint. Fix STRUCTURAL issues only, and ONLY BY ADDING — never remove or \
+reword existing prose (ADR 0007). Allowed fixes:
+- concepts mentioned across pages with no cross-reference link: insert the link inline;
+- orphan pages (no inbound links): link them from a related page;
+- non-conformant pages (missing/empty frontmatter `type`): add the missing field.
+Every page is already guaranteed to have an index.md entry — do NOT touch the catalog.
+When you edit a page, keep ALL of its existing content verbatim and only insert links or \
+frontmatter. A write_file that shrinks a page will be rejected: read the page first and \
+preserve every line.
+`wiki/AGENTS.md` is the wiki-conventions doc: it is exempt and must never be rewritten.
 Do NOT rewrite content, resolve contradictions, or judge staleness — report those instead.
 Call append_log with a one-line summary of the fixes. Finish with a plain-text report of \
 fixes and of any content-level issues you saw but deliberately left alone."""
@@ -230,6 +233,38 @@ def run_tool_loop(client, model: str, messages: list, tools: list, dispatch) -> 
     stopped = "stopped: iteration limit reached without a final answer"
     messages.append({"role": "assistant", "content": stopped})
     return stopped
+
+
+def ensure_index_entries(store) -> list[str]:
+    """Deterministically guarantee every concept page is linked from index.md.
+
+    The LLM is *asked* to keep index.md current on ingest, but that's a judgment
+    call it sometimes flubs — it forgets, or overwrites index.md with only its
+    own new entry (which the write_file guard then rejects, leaving the page
+    unindexed). This is the mechanical backstop: it only ever APPENDS entries for
+    pages not already linked, never removes or reorders, so it's safe to run
+    after any Operation. Returns the paths it added. Used by Ingest, Lint, and
+    the answer-filing step so all three routes leave the catalog complete.
+    """
+    pages = [p for p in store.walk()
+             if p.endswith(".md") and Path(p).name not in okf.CONFORMANCE_EXEMPT]
+    try:
+        index = store.read("index.md")
+    except (FileNotFoundError, OSError):
+        index = ""
+    linked = set(okf.LINK_RE.findall(index))
+    added, new_lines = [], []
+    for rel in sorted(pages):
+        if rel in linked:
+            continue
+        new_lines.append(okf.index_entry(rel, store.read(rel)))
+        added.append(rel)
+    if added:
+        # ponytail: appends missed entries as a flat list at the end, not slotted
+        # into the LLM's sections. It's a backstop for presence, not curation —
+        # Lint/Ingest still organize nicely; this only catches what they dropped.
+        store.write("index.md", index.rstrip("\n") + "\n" + "\n".join(new_lines) + "\n")
+    return added
 
 
 def _rewrite_links(text: str, store, known: set[str], mirror_dir: Path) -> str:
@@ -311,7 +346,8 @@ class Operations:
         except Exception as e:
             return f"error: {type(e).__name__}: {e}"
 
-    def _loop(self, operation_prompt: str, user_msg: str, tool_names: list[str]) -> str:
+    def _loop(self, operation_prompt: str, user_msg: str, tool_names: list[str],
+              dispatch=None) -> str:
         messages = [
             {"role": "system", "content": self._system_prompt(operation_prompt)},
             {"role": "user", "content": user_msg},
@@ -321,16 +357,22 @@ class Operations:
             self.model,
             messages,
             [TOOL_SPECS[n] for n in tool_names],
-            self._dispatch,
+            dispatch or self._dispatch,
         )
 
     def ingest(self, source: str) -> str:
         """Integrate a sources/ file or a URL into the wiki."""
-        return self._loop(
+        report = self._loop(
             INGEST_PROMPT,
             f"Ingest this source: {source}",
             ["read_file", "write_file", "list_dir", "grep", "fetch_url", "append_log"],
         )
+        # Backstop the LLM's index update: guarantee every new page is cataloged
+        # even if the ingest forgot to (or its index write was rejected).
+        added = ensure_index_entries(self.prims.store)
+        if added:
+            report += "\n\n[index] added missing catalog entries: " + ", ".join(added)
+        return report
 
     def query(self, question: str, open_browser: bool = True) -> str:
         """Answer a question from the wiki. Read-only (ADR 0006)."""
@@ -348,9 +390,41 @@ class Operations:
         }
         return okf.check_pages(pages)
 
+    def _lint_dispatch(self, name: str, args: dict) -> str:
+        """Lint's write is content-additive only: reject a write_file that shrinks
+        an existing page (ADR 0007). Adding a cross-link or a frontmatter field
+        only grows a page; a shorter result means Lint dropped real content —
+        the 'too radical' failure the user hit. New pages aren't a Lint job, so
+        they pass through untouched."""
+        if name == "write_file":
+            err = self._reject_lint_shrink(args.get("path", ""), args.get("content", ""))
+            if err:
+                return f"error: {err}"
+        return self._dispatch(name, args)
+
+    def _reject_lint_shrink(self, path: str, content: str) -> str:
+        rel = path.replace("\\", "/").strip("/").removeprefix("wiki/")
+        try:
+            old = self.prims.store.read(rel)
+        except (FileNotFoundError, OSError):
+            return ""  # new page — nothing to preserve
+        # ponytail: 0.9 tolerates whitespace/reflow noise while still catching a
+        # real deletion; tighten to 1.0 if reflow proves not to happen in practice.
+        if len(content.strip()) < len(old.strip()) * 0.9:
+            return (f"lint may not remove content from wiki/{rel}: the new version is "
+                    "shorter than the current one. Lint only ADDS cross-links and "
+                    "frontmatter — read the page and preserve all existing content.")
+        return ""
+
     def lint(self) -> str:
         """Self-heal structural issues (ADR 0007)."""
+        added = ensure_index_entries(self.prims.store)  # deterministic: everything indexed
         user_msg = "Lint the wiki now."
+        if added:
+            user_msg += (
+                "\n\n(index.md already backfilled with catalog entries for: "
+                + ", ".join(added) + " — leave the catalog to that; focus on cross-links.)"
+            )
         problems = self._conformance_problems()
         if problems:
             user_msg += (
@@ -360,4 +434,5 @@ class Operations:
         return self._loop(
             LINT_PROMPT, user_msg,
             ["read_file", "write_file", "list_dir", "grep", "append_log"],
+            dispatch=self._lint_dispatch,
         )

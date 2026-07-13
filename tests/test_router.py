@@ -95,6 +95,17 @@ def test_file_last_answer_writes_conformant_page(tmp_path):
     assert router.awaiting_save is False
 
 
+def test_file_last_answer_adds_index_entry(tmp_path):
+    client = FakeClient([msg(tool_calls=[tool_call("query_wiki", {"question": "How does alpha join beta?"})]),
+                        msg(content="Alpha joins beta on gamma.")])
+    router = make_router(tmp_path, client)
+    (tmp_path / "wiki" / "index.md").write_text("# Index\n", encoding="utf-8")
+    router.handle("How does alpha join beta?")
+    router.file_last_answer()
+    index = (tmp_path / "wiki" / "index.md").read_text(encoding="utf-8")
+    assert "query-answers/how-does-alpha-join-beta.md" in index
+
+
 def test_file_last_answer_without_prior_query_errors(tmp_path):
     router = make_router(tmp_path, FakeClient([]))
     result = router.file_last_answer()

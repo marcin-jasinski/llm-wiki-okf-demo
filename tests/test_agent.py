@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from wikiagent.agent import Operations, render_answer_html
+from wikiagent.agent import Operations, ensure_index_entries, render_answer_html
 from wikiagent.primitives import Primitives
 from wikiagent.store import LocalStore
 
@@ -38,7 +38,7 @@ def test_ingest_executes_tool_calls_and_returns_summary(wiki):
         msg(content="Ingested a.txt into 1 page."),
     ])
     result = make_ops(wiki, client).ingest("sources/a.txt")
-    assert result == "Ingested a.txt into 1 page."
+    assert result.startswith("Ingested a.txt into 1 page.")
     assert (wiki / "wiki" / "concepts" / "alpha.md").exists()
     # tool results were fed back to the LLM
     roles = [m["role"] for m in client.calls[-1]["messages"]]
@@ -100,6 +100,78 @@ def test_loop_stops_at_max_iterations(wiki):
     assert "iteration limit" in result
     # history must end on an assistant turn, not a tool result (Router persistence)
     assert client.calls[-1]["messages"][-1]["role"] == "assistant"
+
+
+def test_ensure_index_entries_backfills_missing_page(tmp_path):
+    store = LocalStore(tmp_path)
+    store.write("index.md", "# Index\n\n* [Alpha](/concepts/alpha.md) - a\n")
+    store.write("concepts/alpha.md", "---\ntype: Concept\ntitle: Alpha\n---\nA\n")
+    store.write("concepts/beta.md",
+                "---\ntype: Concept\ntitle: Beta\ndescription: the beta\n---\nB\n")
+    added = ensure_index_entries(store)
+    assert added == ["concepts/beta.md"]
+    index = store.read("index.md")
+    assert "* [Beta](/concepts/beta.md) - the beta" in index
+    assert "* [Alpha](/concepts/alpha.md) - a" in index  # existing entry untouched
+    # idempotent: a second run finds nothing to add
+    assert ensure_index_entries(store) == []
+
+
+def test_ensure_index_entries_skips_reserved_and_agents(tmp_path):
+    store = LocalStore(tmp_path)
+    store.write("index.md", "# Index\n")
+    store.write("log.md", "history\n")
+    store.write("AGENTS.md", "conventions\n")
+    store.write("concepts/gamma.md", "---\ntype: Concept\ntitle: Gamma\n---\nG\n")
+    added = ensure_index_entries(store)
+    assert added == ["concepts/gamma.md"]  # log.md / AGENTS.md never cataloged
+
+
+def test_ingest_backfills_index_when_llm_forgets(wiki):
+    # LLM writes a concept page but never updates index.md
+    client = FakeClient([
+        msg(tool_calls=[tool_call("write_file", {
+            "path": "wiki/concepts/alpha.md",
+            "content": "---\ntype: Concept\ntitle: Alpha\n---\nalpha\n"})]),
+        msg(content="Ingested."),
+    ])
+    report = make_ops(wiki, client).ingest("sources/a.txt")
+    index = (wiki / "wiki" / "index.md").read_text(encoding="utf-8")
+    assert "[Alpha](/concepts/alpha.md)" in index
+    assert "concepts/alpha.md" in report  # report mentions the backfill
+
+
+def test_lint_rejects_write_that_shrinks_a_page(wiki):
+    store = LocalStore(wiki / "wiki")
+    store.write("concepts/big.md",
+                "---\ntype: Concept\ntitle: Big\n---\n" + "line\n" * 40)
+    # LLM tries to overwrite the page with a stub, then gives up
+    client = FakeClient([
+        msg(tool_calls=[tool_call("write_file", {
+            "path": "wiki/concepts/big.md",
+            "content": "---\ntype: Concept\n---\ngone\n"})]),
+        msg(content="Left it alone."),
+    ])
+    make_ops(wiki, client).lint()
+    # the destructive write was rejected — original content survives
+    assert store.read("concepts/big.md").count("line") == 40
+    tool_msg = [m for m in client.calls[-1]["messages"] if m["role"] == "tool"][0]
+    assert "may not remove content" in tool_msg["content"]
+
+
+def test_lint_allows_write_that_adds_a_link(wiki):
+    store = LocalStore(wiki / "wiki")
+    store.write("concepts/big.md",
+                "---\ntype: Concept\ntitle: Big\n---\n" + "line\n" * 40)
+    grown = ("---\ntype: Concept\ntitle: Big\n---\n" + "line\n" * 40
+             + "\nSee also [Other](/concepts/other.md).\n")
+    client = FakeClient([
+        msg(tool_calls=[tool_call("write_file",
+                                  {"path": "wiki/concepts/big.md", "content": grown})]),
+        msg(content="Added a cross-link."),
+    ])
+    make_ops(wiki, client).lint()
+    assert "[Other](/concepts/other.md)" in store.read("concepts/big.md")
 
 
 class FakeUrlStore:

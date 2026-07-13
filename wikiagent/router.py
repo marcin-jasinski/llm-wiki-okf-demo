@@ -8,7 +8,7 @@ an LLM-decided tool call (ADR 0006, amended by ADR 0014).
 import re
 import threading
 
-from wikiagent.agent import tool_spec, STR, run_tool_loop
+from wikiagent.agent import tool_spec, STR, run_tool_loop, ensure_index_entries
 from wikiagent.okf import wrap_frontmatter
 from wikiagent.primitives import SandboxError
 
@@ -74,6 +74,7 @@ class Router:
             self.prims.write_file(path, page)
         except SandboxError as e:
             return f"error: {e}"
+        ensure_index_entries(self.prims.store)  # keep the filed answer out of orphan-hood
         self.awaiting_save = False
         return f"filed the answer at {path}"
 

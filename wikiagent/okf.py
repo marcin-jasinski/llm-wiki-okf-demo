@@ -81,6 +81,18 @@ def check_bundle(root: Path) -> list[str]:
     return check_pages(pages)
 
 
+def index_entry(rel: str, text: str) -> str:
+    """One `index.md` catalog line for a page, from its frontmatter (OKF §7):
+    `* [Title](/path) - description`. Title/description fall back to the filename
+    when absent so the entry is always well-formed."""
+    fm, _ = parse_frontmatter(text)
+    fm = fm or {}
+    title = str(fm.get("title") or Path(rel).stem).strip()
+    desc = str(fm.get("description") or "").strip()
+    line = f"* [{title}](/{rel})"
+    return f"{line} - {desc}" if desc else line
+
+
 def wrap_frontmatter(body: str, *, type: str, title: str,
                      description: str = "", tags: list[str] | None = None) -> str:
     """Deterministically wrap a body as a conformant OKF concept document."""
