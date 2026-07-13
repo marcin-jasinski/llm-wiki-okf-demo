@@ -46,9 +46,22 @@ def test_write_maps_path_to_nested_page(store):
 
 
 def test_read_round_trips_verbatim(store):
-    page = wrap_frontmatter("See [x](accounts.md).", type="table", title="Orders")
+    # canonical leading-/ link form round-trips byte-identical (ADR 0017): a
+    # bare "accounts.md" would too, but always comes back out with a leading /
+    page = wrap_frontmatter("See [x](/accounts.md).", type="table", title="Orders")
     store.write("tables/orders.md", page)
     assert store.read("tables/orders.md") == page  # frontmatter + link untouched
+
+
+def test_frontmatter_fenced_on_the_wire_for_xwiki(store):
+    """ADR 0016: raw xWiki content fences frontmatter so CommonMark doesn't
+    mangle bare `---` into a <hr>/setext heading; read() reverses it so callers
+    still see plain `---` frontmatter (test_read_round_trips_verbatim above)."""
+    page = wrap_frontmatter("Body text.", type="Concept", title="X")
+    store.write("x.md", page)
+    raw = store.client.get(["WikiDemo"], "x")
+    assert raw.startswith("```yaml\n") and not raw.startswith("---\n")
+    assert store.read("x.md") == page
 
 
 def test_read_missing_raises(store):
@@ -89,14 +102,38 @@ def test_export_is_conformant_by_construction(store):
 
 
 def test_primitives_work_over_xwiki_backend(store):
-    """Backend switching: the same five primitives run unchanged on xWiki."""
+    """Backend switching: the same six primitives run unchanged on xWiki."""
     prims = Primitives(store, sources_dir=".")
     prims.write_file("wiki/tables/orders.md",
-                     "---\ntype: Table\n---\nSee [c](customers.md).\n")
+                     "---\ntype: Table\n---\nSee [c](/customers.md).\n")
     assert prims.read_file("wiki/tables/orders.md").endswith("customers.md).\n")
     assert prims.list_dir("wiki") == ["tables/"]
     hits = prims.grep(r"customers\.md")
-    assert hits == ["wiki/tables/orders.md:4:See [c](customers.md)."]
+    assert hits == ["wiki/tables/orders.md:4:See [c](/customers.md)."]
+
+
+def test_link_rewritten_to_live_url_on_the_wire(store):
+    """The reported bug: a stored '.md' cross-link has nothing to resolve
+    against once xWiki serves the page (ADR 0017) — it must become the
+    target's live view URL on the wire, not stay a bare '.md' href."""
+    store = XWikiStore(FakePageClient(), space="WikiDemo", base_url="http://localhost:8080")
+    store.write("index.md", "* [Orders](/tables/orders.md)\n")
+    raw = store.client.get(["WikiDemo"], "index")
+    assert "orders.md" not in raw
+    assert "http://localhost:8080/bin/view/WikiDemo/tables/orders" in raw
+
+
+def test_link_rewrite_reversed_on_read(store):
+    store = XWikiStore(FakePageClient(), space="WikiDemo", base_url="http://localhost:8080")
+    store.write("index.md", "* [Orders](/tables/orders.md)\n")
+    assert store.read("index.md") == "* [Orders](/tables/orders.md)\n"
+
+
+def test_external_md_link_left_untouched(store):
+    page = "* [Readme](https://github.com/x/y/README.md)\n"
+    store.write("index.md", page)
+    assert store.client.get(["WikiDemo"], "index") == page  # untouched on the wire
+    assert store.read("index.md") == page
 
 
 def test_make_store_selects_xwiki(monkeypatch):

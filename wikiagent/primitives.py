@@ -1,4 +1,4 @@
-"""The five sandboxed file primitives — the LLM's uniform tool surface (ADR 0011).
+"""The six sandboxed file primitives — the LLM's uniform tool surface (ADR 0011).
 
 Virtual paths route to two trees: "wiki/..." goes through the Wiki Store
 (pluggable), "sources/..." reads the local Raw Sources Directory. Writes
@@ -7,9 +7,12 @@ enforced here rather than by convention.
 """
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 import httpx
+
+from wikiagent.okf import LINK_RE, clean_frontmatter
 
 
 class SandboxError(Exception):
@@ -46,25 +49,44 @@ class Primitives:
         if rel == "AGENTS.md":
             raise SandboxError("wiki/AGENTS.md is read-only (wiki-conventions doc)")
         if rel == "log.md":
-            self._check_log_append_only(content)
-        self.store.write(rel, content)
+            raise SandboxError("wiki/log.md is append-only — use the append_log tool")
+        if rel == "index.md":
+            self._check_index_keeps_links(content)
+        self.store.write(rel, clean_frontmatter(content))
         return f"wrote {path}"
 
-    def _check_log_append_only(self, new_content: str) -> None:
-        """log.md is append-only (OKF spec §7): every existing entry must still
-        appear, in order, in the new content — writes can add lines, never
-        drop or rewrite them."""
+    def _check_index_keeps_links(self, new_content: str) -> None:
+        """index.md is the catalog (OKF): every page it already links to must
+        still be linked after a write. Entries may be reworded/reorganized
+        freely — only silently dropping an existing catalog entry is rejected,
+        which is what an ingest that forgets to merge in the prior index looks
+        like (each run overwriting index.md with only its own new entry)."""
         try:
-            old_content = self.store.read("log.md")
+            old_content = self.store.read("index.md")
         except (FileNotFoundError, OSError):
             return
-        old_lines = [ln for ln in old_content.splitlines() if ln.strip()]
-        new_lines = iter(ln for ln in new_content.splitlines() if ln.strip())
-        for old_line in old_lines:
-            if not any(new_line == old_line for new_line in new_lines):
-                raise SandboxError(
-                    "log.md is append-only: this write drops or alters an "
-                    f"existing entry: {old_line[:100]!r}")
+        dropped = set(LINK_RE.findall(old_content)) - set(LINK_RE.findall(new_content))
+        if dropped:
+            raise SandboxError(
+                "wiki/index.md must keep every existing catalog entry: this write "
+                f"drops the link(s) to {sorted(dropped)}. Read the current index.md "
+                "and add to its entries instead of replacing them.")
+
+    def append_log(self, message: str) -> str:
+        """Append one timestamped entry to wiki/log.md at the bottom (OKF spec
+        §7: append-only). Formatting and placement are deterministic — the LLM
+        only supplies the message text. Entries are blank-line-separated, not
+        just newline-separated: Markdown (incl. xWiki's CommonMark renderer)
+        treats a single '\\n' as a soft break that collapses into the same
+        line — a blank line forces each entry onto its own rendered line."""
+        entry = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] - {message}"
+        try:
+            old = self.store.read("log.md").rstrip("\n")
+        except (FileNotFoundError, OSError):
+            old = ""
+        new_content = f"{old}\n\n{entry}\n" if old else f"{entry}\n"
+        self.store.write("log.md", new_content)
+        return f"appended to wiki/log.md: {entry}"
 
     def list_dir(self, path: str) -> list[str]:
         root, rel = _split(path)

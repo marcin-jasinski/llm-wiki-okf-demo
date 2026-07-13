@@ -17,7 +17,7 @@ The agent has exactly three high-level capabilities, uniformly available from ev
 - **Query** — answer a question by reading the wiki, render the answer as a styled HTML page opened in your browser. Read-only — never writes anything on its own.
 - **Lint** — self-heal structural issues: orphan pages, missing cross-references, concepts mentioned but not yet documented. Writes fixes directly, but only structural ones — no content judgment calls (contradictions, staleness) are auto-resolved. See [`docs/adr/0007`](docs/adr/0007-structural-only-lint.md).
 
-Each Operation runs its own inner tool-calling loop over five sandboxed file primitives (`read_file`, `write_file`, `list_dir`, `grep`, `fetch_url`). `write_file` is only ever allowed inside `WIKI_DIR` — the Raw Sources Directory is read-only to the agent, enforcing the "raw sources are immutable" rule from the LLM Wiki spec at the tool level, not just by convention.
+Each Operation runs its own inner tool-calling loop over six sandboxed file primitives (`read_file`, `write_file`, `list_dir`, `grep`, `fetch_url`, `append_log`). `write_file` is only ever allowed inside `WIKI_DIR` — the Raw Sources Directory is read-only to the agent, enforcing the "raw sources are immutable" rule from the LLM Wiki spec at the tool level, not just by convention. `log.md` is append-only and can only be touched via `append_log`, which stamps the timestamp and appends the entry as a new line at the bottom deterministically — not left to the model to format.
 
 ## How you run it
 

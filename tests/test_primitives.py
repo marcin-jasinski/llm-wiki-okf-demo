@@ -1,8 +1,10 @@
-"""Smoke tests for the five sandboxed file primitives (ticket 08).
+"""Smoke tests for the six sandboxed file primitives (ticket 08).
 
 Seam: the Primitives class — the exact tool surface every Operation's
 inner loop sees, on any Wiki Store (ADR 0011).
 """
+
+import re
 
 import pytest
 
@@ -37,6 +39,38 @@ def test_read_file_from_sources(prims):
 def test_write_file_inside_wiki(prims):
     prims.write_file("wiki/tables/customers.md", "---\ntype: Table\n---\nhi\n")
     assert prims.read_file("wiki/tables/customers.md").endswith("hi\n")
+
+
+def test_write_file_cleans_stray_frontmatter_whitespace(prims):
+    # a model occasionally emits a tab/leading space in the YAML block, which
+    # breaks parsing intermittently — write_file must normalize it away
+    prims.write_file("wiki/tables/customers.md", "---\n\ttype: Table\n  title: X\n---\nhi\n")
+    assert prims.read_file("wiki/tables/customers.md") == \
+        "---\ntype: Table\ntitle: X\n---\nhi\n"
+
+
+def test_write_file_index_first_write_is_free(prims):
+    prims.write_file("wiki/index.md", "# Concepts\n\n* [Orders](/tables/orders.md)\n")
+    assert "orders.md" in prims.read_file("wiki/index.md")
+
+
+def test_write_file_index_rejects_dropped_entry(prims):
+    prims.write_file("wiki/index.md", "# Concepts\n\n* [Orders](/tables/orders.md)\n")
+    with pytest.raises(SandboxError):
+        # an ingest that overwrites the catalog with only its own new entry —
+        # the reported bug: each ingest deleting everything ingested before it
+        prims.write_file("wiki/index.md", "# Concepts\n\n* [Invoices](/tables/invoices.md)\n")
+
+
+def test_write_file_index_allows_growth_and_rewording(prims):
+    prims.write_file("wiki/index.md", "# Concepts\n\n* [Orders](/tables/orders.md)\n")
+    prims.write_file(
+        "wiki/index.md",
+        "# Concepts\n\n## Tables\n* [Orders table](/tables/orders.md)\n"
+        "* [Invoices](/tables/invoices.md)\n",
+    )
+    content = prims.read_file("wiki/index.md")
+    assert "orders.md" in content and "invoices.md" in content
 
 
 def test_write_file_into_sources_rejected(prims):
@@ -85,32 +119,34 @@ def test_grep_no_match(prims):
     assert prims.grep("zzz-not-there") == []
 
 
-def test_log_md_append_only_allows_growth(prims):
-    prims.write_file("wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: first.\n")
-    prims.write_file(
-        "wiki/log.md",
-        "# Log\n\n## 2026-01-02\n\n* **Update**: second.\n\n"
-        "## 2026-01-01\n\n* **Update**: first.\n",
-    )
-    assert "first" in prims.read_file("wiki/log.md")
-    assert "second" in prims.read_file("wiki/log.md")
-
-
-def test_log_md_append_only_rejects_dropped_entry(prims):
-    prims.write_file(
-        "wiki/log.md",
-        "# Log\n\n## 2026-01-01\n\n* **Update**: first.\n\n* **Update**: second.\n",
-    )
+def test_write_file_log_md_rejected(prims):
+    # log.md is append-only — the LLM must go through append_log, never write_file
     with pytest.raises(SandboxError):
-        prims.write_file("wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: second.\n")
+        prims.write_file("wiki/log.md", "anything")
 
 
-def test_log_md_append_only_rejects_rewritten_entry(prims):
-    prims.write_file(
-        "wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: first version.\n")
-    with pytest.raises(SandboxError):
-        prims.write_file(
-            "wiki/log.md", "# Log\n\n## 2026-01-01\n\n* **Update**: edited version.\n")
+def test_append_log_creates_file_with_bracketed_timestamp(prims):
+    prims.append_log("Creation: first.")
+    content = prims.read_file("wiki/log.md")
+    assert re.fullmatch(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] - Creation: first\.\n",
+                        content)
+
+
+def test_append_log_appends_new_line_at_the_bottom(prims):
+    prims.append_log("Creation: first.")
+    prims.append_log("Update: second.")
+    lines = [ln for ln in prims.read_file("wiki/log.md").splitlines() if ln.strip()]
+    assert len(lines) == 2
+    assert lines[0].endswith("Creation: first.")
+    assert lines[1].endswith("Update: second.")
+
+
+def test_append_log_entries_are_blank_line_separated(prims):
+    # a single '\n' is a CommonMark soft break (renders as one line on xWiki) —
+    # entries must be separated by a blank line so each renders on its own line
+    prims.append_log("Creation: first.")
+    prims.append_log("Update: second.")
+    assert "\n\n" in prims.read_file("wiki/log.md")
 
 
 def test_make_store_selects_local(tmp_path):

@@ -2,7 +2,9 @@
 and Lint, and the deterministic wrap-with-frontmatter save (ADR 0006).
 """
 
-from wikiagent.okf import check_bundle, check_page, check_pages, wrap_frontmatter
+from wikiagent.okf import (
+    check_bundle, check_page, check_pages, clean_frontmatter, wrap_frontmatter,
+)
 
 GOOD = """---
 type: Table
@@ -76,3 +78,23 @@ def test_wrap_frontmatter_is_deterministic_about_body():
     # ADR 0006: the stored page is the shown answer verbatim, only wrapped
     body = "Line one.\n\n## Detail\nLine two."
     assert body in wrap_frontmatter(body, type="Query Answer", title="t")
+
+
+def test_clean_frontmatter_strips_leading_whitespace_before_block():
+    dirty = "  \n\t---\ntype: Table\n---\nbody\n"
+    assert clean_frontmatter(dirty) == "---\ntype: Table\n---\nbody\n"
+
+
+def test_clean_frontmatter_strips_tabs_and_spaces_inside_block():
+    dirty = "---\n\ttype: Table\n  title: Orders\n---\nbody\n"
+    cleaned = clean_frontmatter(dirty)
+    assert cleaned == "---\ntype: Table\ntitle: Orders\n---\nbody\n"
+    assert check_page(cleaned) == []
+
+
+def test_clean_frontmatter_noop_without_frontmatter():
+    assert clean_frontmatter("# Just a heading\n") == "# Just a heading\n"
+
+
+def test_clean_frontmatter_noop_when_already_clean():
+    assert clean_frontmatter(GOOD) == GOOD

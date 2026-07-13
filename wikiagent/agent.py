@@ -1,5 +1,5 @@
 """The three Operations (Ingest, Query, Lint) and their inner tool-calling
-loop over the five file primitives (ADR 0002, README).
+loop over the six file primitives (ADR 0002, README).
 """
 
 import json
@@ -7,7 +7,7 @@ import re
 import sys
 import tempfile
 import webbrowser
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 
@@ -106,6 +106,13 @@ TOOL_SPECS = {
     "fetch_url": tool_spec(
         "fetch_url", "Fetch a URL and return its body as text.", {"url": STR}, ["url"]
     ),
+    "append_log": tool_spec(
+        "append_log",
+        "Append one entry to wiki/log.md. Timestamp and placement are automatic — "
+        "pass just the message, e.g. 'Creation: added services/billing.md'.",
+        {"message": STR},
+        ["message"],
+    ),
 }
 
 OKF_CONVENTIONS = """\
@@ -119,10 +126,15 @@ final `# Citations` heading, numbered.
 Links to not-yet-written pages are allowed.
 - `wiki/index.md` is the catalog: sections of `* [Title](path) - one-line description` \
 entries. Keep it current on every ingest. It has no frontmatter.
-- `wiki/log.md` is the append-only history, newest first, grouped under `## YYYY-MM-DD` \
-headings with `* **Update**: ...` / `* **Creation**: ...` entries. No frontmatter.
-- File paths: lowercase, hyphenated, `.md`, organized into subdirectories by kind when \
-useful. `index.md` and `log.md` are reserved names — never use them for concepts.
+- `wiki/log.md` is the append-only history. Never write it with write_file — call \
+`append_log` with a one-line message (e.g. "Update: ..." / "Creation: ..."); it stamps \
+the timestamp and appends the entry as a new line at the bottom for you.
+- File paths: lowercase, hyphenated, `.md`. Always place concept and source-summary pages \
+in a subdirectory named for their kind (e.g. `services/`, `runbooks/`, `incidents/`, \
+`sources/`) — never write them at the wiki root. On the xWiki backend each subdirectory \
+becomes its own nested space (ADR 0012), so this is what keeps the wiki a browsable \
+catalogue there instead of one flat space. `index.md` and `log.md` are reserved names — \
+never use them for concepts, and they stay at the wiki root.
 Explore before writing: read wiki/index.md (and grep) to find existing pages to update and \
 link, rather than duplicating them."""
 
@@ -131,8 +143,8 @@ Operation: Ingest. Integrate the given source into the wiki:
 1. Read the source (read_file for sources/ paths, fetch_url for URLs).
 2. Read wiki/index.md and any related existing pages.
 3. Write or update concept pages capturing the source's key knowledge, cross-linked both ways.
-4. Write a source summary page for the source itself, citing it.
-5. Update wiki/index.md and append to wiki/log.md.
+4. Write a source summary page for the source itself (under `sources/`), citing it.
+5. Update wiki/index.md and call append_log with a one-line summary.
 Finish with a short plain-text report of what you created and updated."""
 
 QUERY_PROMPT = """\
@@ -150,8 +162,8 @@ Operation: Lint. Self-heal STRUCTURAL issues only (ADR 0007):
 `wiki/AGENTS.md` is the wiki-conventions doc: it is exempt from these rules and must
 never be rewritten.
 Do NOT rewrite content, resolve contradictions, or judge staleness — report those instead.
-Append a lint entry to wiki/log.md. Finish with a plain-text report of fixes and of any \
-content-level issues you saw but deliberately left alone."""
+Call append_log with a one-line summary of the fixes. Finish with a plain-text report of \
+fixes and of any content-level issues you saw but deliberately left alone."""
 
 HTML_TEMPLATE = """<!doctype html>
 <meta charset="utf-8">
@@ -220,13 +232,6 @@ def run_tool_loop(client, model: str, messages: list, tools: list, dispatch) -> 
     return stopped
 
 
-# Matches the OKF cross-link convention (bundle-relative, optionally leading-/):
-# [title](/path/page.md) or [title](path/page.md). Also matches an external
-# https://.../x.md link syntactically — _rewrite_links leaves those alone since
-# they never appear in `known` (the store's own bundle-relative paths).
-WIKI_LINK_RE = re.compile(r"\]\(/?([^)\s]+\.md)\)")
-
-
 def _rewrite_links(text: str, store, known: set[str], mirror_dir: Path) -> str:
     """Point each cross-link at something clickable (ADR 0015): the page's live
     URL if the store has one (xWiki), else its rendered sibling under mirror_dir.
@@ -240,7 +245,7 @@ def _rewrite_links(text: str, store, known: set[str], mirror_dir: Path) -> str:
             return m.group(0)
         url = store.page_url(rel) or (mirror_dir / (rel[:-3] + ".html")).as_uri()
         return f"]({url})"
-    return WIKI_LINK_RE.sub(repl, text)
+    return okf.LINK_RE.sub(repl, text)
 
 
 def _render_page(md_text: str, store, known: set[str], mirror_dir: Path, out_path: Path) -> None:
@@ -282,9 +287,9 @@ class Operations:
     def _system_prompt(self, operation_prompt: str) -> str:
         parts = [
             OKF_CONVENTIONS,
-            f"Today's date is {date.today().isoformat()}. Use it for "
-            "frontmatter `timestamp:` and log.md date headings — never invent or reuse "
-            "a date from an existing page.",
+            f"Today's date is {datetime.now().date().isoformat()}. Use it for frontmatter "
+            "`timestamp:` — never invent or reuse a date from an existing page. "
+            "wiki/log.md's own timestamps come from append_log automatically.",
         ]
         try:
             conventions = self.prims.read_file("wiki/AGENTS.md")
@@ -324,7 +329,7 @@ class Operations:
         return self._loop(
             INGEST_PROMPT,
             f"Ingest this source: {source}",
-            ["read_file", "write_file", "list_dir", "grep", "fetch_url"],
+            ["read_file", "write_file", "list_dir", "grep", "fetch_url", "append_log"],
         )
 
     def query(self, question: str, open_browser: bool = True) -> str:
@@ -353,5 +358,6 @@ class Operations:
                 "non-conformant pages — fix each one:\n" + "\n".join(problems)
             )
         return self._loop(
-            LINT_PROMPT, user_msg, ["read_file", "write_file", "list_dir", "grep"]
+            LINT_PROMPT, user_msg,
+            ["read_file", "write_file", "list_dir", "grep", "append_log"],
         )

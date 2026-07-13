@@ -21,7 +21,7 @@ The top-level tool-calling loop behind the interactive REPL. Its LLM-facing tool
 _Avoid_: dispatcher, orchestrator
 
 **Wiki Store**:
-The pluggable storage interface behind the five file primitives — the one seam where local disk (`WIKI_DIR`) and remote xWiki implementations diverge. The LLM never sees which store is active; Operations and prompts are store-agnostic. Selected per process via `WIKI_BACKEND`.
+The pluggable storage interface behind the six file primitives — the one seam where local disk (`WIKI_DIR`) and remote xWiki implementations diverge. The LLM never sees which store is active; Operations and prompts are store-agnostic. Selected per process via `WIKI_BACKEND`.
 _Avoid_: backend (alone — ambiguous with the LLM backend), driver, adapter
 
 **xWiki MCP Server**:

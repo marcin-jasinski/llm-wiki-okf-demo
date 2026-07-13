@@ -5,9 +5,39 @@ implements this same interface over MCP, mapping each path to an xWiki page per
 ADR 0012.
 """
 
+import re
 from pathlib import Path
 from typing import List, Optional, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, unquote
+
+from wikiagent.okf import LINK_RE
+
+_ANY_LINK_RE = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def _to_xwiki_markdown(text: str) -> str:
+    """Fence OKF `---` frontmatter as a ```yaml code block (ADR 0016): xWiki's
+    CommonMark renderer otherwise turns a bare `---` into a <hr>/setext heading
+    instead of showing it as metadata. Reversed by `_from_xwiki_markdown` on
+    read, so every other layer still sees plain `---` frontmatter."""
+    if not text.startswith("---\n"):
+        return text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return text
+    fm, body = text[4:end + 1], text[end + 5:]
+    return f"```yaml\n{fm}```\n{body}"
+
+
+def _from_xwiki_markdown(text: str) -> str:
+    """Inverse of `_to_xwiki_markdown`."""
+    if not text.startswith("```yaml\n"):
+        return text
+    end = text.find("\n```\n", 8)
+    if end == -1:
+        return text
+    fm, body = text[8:end + 1], text[end + 5:]
+    return f"---\n{fm}---\n{body}"
 
 
 class LocalStore:
@@ -99,11 +129,37 @@ class XWikiStore:
         content = self.client.get(spaces, name)
         if content is None:
             raise FileNotFoundError(rel)
-        return content
+        return self._rewrite_links_in(_from_xwiki_markdown(content))
 
     def write(self, rel: str, content: str) -> None:
         spaces, name = self._to_ref(rel)
+        content = self._rewrite_links_out(_to_xwiki_markdown(content))
         self.client.put(spaces, name, content)
+
+    def _rewrite_links_out(self, content: str) -> str:
+        """Point a bundle-relative `.md` cross-link at the target's live xWiki
+        URL (ADR 0017): a raw '.md' href has nothing to resolve against once
+        xWiki serves the page, so links break. Reversed by `_rewrite_links_in`
+        on read, so every other layer still sees plain bundle-relative links.
+        Leaves alone anything with a scheme ("://") — an external citation
+        link that happens to end in .md, not one of ours."""
+        def repl(m: re.Match) -> str:
+            href = m.group(1)
+            if "://" in href:
+                return m.group(0)
+            return f"]({self.page_url(href)})"
+        return LINK_RE.sub(repl, content)
+
+    def _rewrite_links_in(self, content: str) -> str:
+        """Inverse of `_rewrite_links_out`."""
+        prefix = self.base_url + "/bin/view/" + quote(self.space, safe="") + "/"
+        def repl(m: re.Match) -> str:
+            href = m.group(1)
+            if not href.startswith(prefix):
+                return m.group(0)
+            path = "/".join(unquote(part) for part in href[len(prefix):].split("/"))
+            return f"](/{path}.md)"
+        return _ANY_LINK_RE.sub(repl, content)
 
     def walk(self) -> List[str]:
         return sorted(self._from_ref(sp, name)

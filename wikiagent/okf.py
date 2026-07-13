@@ -2,6 +2,7 @@
 wrap-with-frontmatter used when a human files a Query answer (ADR 0006).
 """
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +12,30 @@ RESERVED = {"index.md", "log.md"}
 # Exempt from concept-page conformance: the reserved catalog/history files plus
 # the wiki-conventions doc (AGENTS.md), which is prose guidance, not a concept.
 CONFORMANCE_EXEMPT = RESERVED | {"AGENTS.md"}
+
+# The OKF cross-link convention (bundle-relative, optionally leading-/):
+# [title](/path/page.md) or [title](path/page.md). Also matches an external
+# https://.../x.md link syntactically — callers that need to tell the two
+# apart check the captured group for "://" or membership in a known-pages set.
+LINK_RE = re.compile(r"\]\(/?([^)\s]+\.md)\)")
+
+
+def clean_frontmatter(text: str) -> str:
+    """Sanitize a leading OKF frontmatter block against stray tabs/spaces that
+    make it unparseable: strips whitespace before the opening `---` and any
+    leading indentation on the lines inside it. This project's frontmatter is
+    always flat scalars/lists (see OKF_CONVENTIONS), so no indentation there
+    is ever meaningful — a leading tab/space is always LLM noise, never intent.
+    Pages with no frontmatter block pass through untouched."""
+    stripped = text.lstrip(" \t\r\n")
+    if not stripped.startswith("---\n"):
+        return text
+    end = stripped.find("\n---\n", 4)
+    if end == -1:
+        return text
+    fm = "\n".join(line.lstrip(" \t") for line in stripped[4:end + 1].splitlines())
+    body = stripped[end + 5:]
+    return f"---\n{fm}\n---\n{body}"
 
 
 def parse_frontmatter(text: str):
